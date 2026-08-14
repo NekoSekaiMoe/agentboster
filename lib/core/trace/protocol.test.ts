@@ -24,14 +24,18 @@ describe('canonical Trace callback protocol', () => {
     expect(callback?.envelope.idempotencyKey).toBe('tool:task-1:call-1');
   });
 
-  it('rejects legacy payloads and incomplete canonical envelopes', () => {
-    expect(
-      normalizeTraceCallback({
-        run_id: 'legacy-run',
-        tool_name: 'read',
-        task_id: 'task-1',
-      }),
-    ).toBeNull();
+  it('adapts legacy agentd payloads without creating a second storage path', () => {
+    const callback = normalizeTraceCallback({
+      run_id: 'legacy-run',
+      tool_name: 'read',
+      action: 'read',
+      task_id: 'task-1',
+      success: true,
+    });
+    expect(callback?.envelope.traceId).toBe('legacy-run');
+    expect(callback?.envelope.type).toBe('tool');
+    expect(callback?.envelope.metadata).toMatchObject({ toolName: 'read' });
+    expect(callback?.envelope.spanId).toMatch(/^tool:/);
     expect(
       normalizeTraceCallback({
         record_kind: 'span',

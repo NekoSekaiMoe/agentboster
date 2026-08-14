@@ -31,6 +31,12 @@ func (s *Server) handleWriteReviewLogs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	for _, log := range logs {
+		if log.RunID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "run_id is required for review logs"})
+			return
+		}
+	}
 	if err := s.clawless.WriteReviewLogs(c.Request.Context(), logs); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return

@@ -49,31 +49,6 @@ export type TraceIngestResult<T> = {
   duplicate: boolean;
 };
 
-function isMissingCanonicalTable(error: unknown): boolean {
-  const value = error as {
-    code?: unknown;
-    message?: unknown;
-    cause?: { code?: unknown; message?: unknown };
-  } | null;
-  const message = [value?.message, value?.cause?.message]
-    .filter((item): item is string => typeof item === 'string')
-    .join(' ');
-  return (
-    value?.code === '42P01' ||
-    value?.cause?.code === '42P01' ||
-    /trace_(runs|spans|events).*does not exist/.test(message)
-  );
-}
-
-async function canonicalOr<T>(work: () => Promise<T>, fallback: T): Promise<T> {
-  try {
-    return await work();
-  } catch (error) {
-    if (isMissingCanonicalTable(error)) return fallback;
-    throw error;
-  }
-}
-
 function asDate(value: Date | null | undefined): Date {
   return value && !Number.isNaN(value.getTime()) ? value : new Date();
 }
@@ -339,14 +314,12 @@ export async function finalizeTraceRun(input: {
 }
 
 export async function getCanonicalTraceRun(traceId: string) {
-  return canonicalOr(async () => {
-    const [row] = await db
-      .select()
-      .from(traceRuns)
-      .where(eq(traceRuns.traceId, traceId))
-      .limit(1);
-    return row ?? null;
-  }, null);
+  const [row] = await db
+    .select()
+    .from(traceRuns)
+    .where(eq(traceRuns.traceId, traceId))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function listCanonicalTraceRuns(input: {
@@ -364,50 +337,38 @@ export async function listCanonicalTraceRuns(input: {
     const pattern = `%${input.search.trim()}%`;
     conditions.push(sql`${traceRuns.traceId} ILIKE ${pattern}`);
   }
-  return canonicalOr(
-    () =>
-      db
-        .select()
-        .from(traceRuns)
-        .where(conditions.length ? and(...conditions) : undefined)
-        .orderBy(desc(traceRuns.startedAt), desc(traceRuns.traceId))
-        .limit(Math.min(Math.max(input.limit ?? 250, 1), 250)),
-    [],
-  );
+  return db
+    .select()
+    .from(traceRuns)
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(traceRuns.startedAt), desc(traceRuns.traceId))
+    .limit(Math.min(Math.max(input.limit ?? 250, 1), 250));
 }
 
 export async function listCanonicalTraceSpans(traceIds: string[]) {
   if (traceIds.length === 0) return [];
-  return canonicalOr(
-    () =>
-      db
-        .select()
-        .from(traceSpans)
-        .where(inArray(traceSpans.traceId, traceIds))
-        .orderBy(
-          asc(traceSpans.traceId),
-          asc(traceSpans.sequence),
-          asc(traceSpans.spanId),
-        ),
-    [],
-  );
+  return db
+    .select()
+    .from(traceSpans)
+    .where(inArray(traceSpans.traceId, traceIds))
+    .orderBy(
+      asc(traceSpans.traceId),
+      asc(traceSpans.sequence),
+      asc(traceSpans.spanId),
+    );
 }
 
 export async function listCanonicalTraceEvents(traceIds: string[]) {
   if (traceIds.length === 0) return [];
-  return canonicalOr(
-    () =>
-      db
-        .select()
-        .from(traceEvents)
-        .where(inArray(traceEvents.traceId, traceIds))
-        .orderBy(
-          asc(traceEvents.traceId),
-          asc(traceEvents.sequence),
-          asc(traceEvents.eventId),
-        ),
-    [],
-  );
+  return db
+    .select()
+    .from(traceEvents)
+    .where(inArray(traceEvents.traceId, traceIds))
+    .orderBy(
+      asc(traceEvents.traceId),
+      asc(traceEvents.sequence),
+      asc(traceEvents.eventId),
+    );
 }
 
 export async function listCanonicalReviewSpans(input: {
@@ -416,20 +377,16 @@ export async function listCanonicalReviewSpans(input: {
 }) {
   const conditions = [eq(traceSpans.type, 'review')];
   if (input.userId) conditions.push(eq(traceSpans.userId, input.userId));
-  return canonicalOr(
-    () =>
-      db
-        .select()
-        .from(traceSpans)
-        .where(and(...conditions))
-        .orderBy(
-          desc(traceSpans.startedAt),
-          desc(traceSpans.sequence),
-          desc(traceSpans.spanId),
-        )
-        .limit(Math.min(Math.max(input.limit ?? 1000, 1), 10000)),
-    [],
-  );
+  return db
+    .select()
+    .from(traceSpans)
+    .where(and(...conditions))
+    .orderBy(
+      desc(traceSpans.startedAt),
+      desc(traceSpans.sequence),
+      desc(traceSpans.spanId),
+    )
+    .limit(Math.min(Math.max(input.limit ?? 1000, 1), 10000));
 }
 
 export async function listCanonicalToolSpans(input: {
@@ -438,20 +395,16 @@ export async function listCanonicalToolSpans(input: {
 }) {
   const conditions = [eq(traceSpans.type, 'tool')];
   if (input.userId) conditions.push(eq(traceSpans.userId, input.userId));
-  return canonicalOr(
-    () =>
-      db
-        .select()
-        .from(traceSpans)
-        .where(and(...conditions))
-        .orderBy(
-          desc(traceSpans.startedAt),
-          desc(traceSpans.sequence),
-          desc(traceSpans.spanId),
-        )
-        .limit(Math.min(Math.max(input.limit ?? 1000, 1), 10000)),
-    [],
-  );
+  return db
+    .select()
+    .from(traceSpans)
+    .where(and(...conditions))
+    .orderBy(
+      desc(traceSpans.startedAt),
+      desc(traceSpans.sequence),
+      desc(traceSpans.spanId),
+    )
+    .limit(Math.min(Math.max(input.limit ?? 1000, 1), 10000));
 }
 
 export async function getCanonicalTraceStats(input: { userId?: string } = {}) {

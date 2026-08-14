@@ -18,11 +18,9 @@ import {
   agentdNodes,
   agentL0Rules,
   agentMemories,
-  agentReviewLogs,
   agentSandboxes,
   agentTaskOutputs,
   agentTasks,
-  agentToolActivityLogs,
   sessions,
   longTermMemories,
   sessionMemories,
@@ -35,18 +33,33 @@ import { atomicWriteMode } from './atomic';
 import { bumpSharedMemoryVersion } from '@/lib/memory/shared-version';
 import type { Decision } from './schema';
 import { ingestTraceSpan } from '@/lib/core/trace/dal';
-import { createLogger } from '@/lib/utils/logger';
-
-const traceLogger = createLogger('db.agentd.trace');
 
 type AgentdTask = typeof agentTasks.$inferSelect & {
   roles?: string[];
   source?: Record<string, unknown> | null;
 };
 
-type ReviewDecision = (typeof agentReviewLogs.decision.enumValues)[number];
-type ToolActivityAction =
-  (typeof agentToolActivityLogs.action.enumValues)[number];
+const REVIEW_DECISIONS = [
+  'allowed',
+  'allowed_with_warning',
+  'blocked',
+  'pending_confirm',
+  'pending_l2',
+  'pending_l2_critical',
+  'approved',
+  'rejected',
+  'expired',
+] as const;
+type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
+const TOOL_ACTIVITY_ACTIONS = [
+  'read',
+  'write',
+  'execute',
+  'search',
+  'network',
+  'other',
+] as const;
+type ToolActivityAction = (typeof TOOL_ACTIVITY_ACTIONS)[number];
 
 type ToolActivityLogInput = {
   traceId?: string;
@@ -300,7 +313,7 @@ export async function resolveAgentdResourceAccess(input: {
 }
 
 function normalizeDecision(value: string): ReviewDecision {
-  const allowed = new Set<string>(agentReviewLogs.decision.enumValues);
+  const allowed = new Set<string>(REVIEW_DECISIONS);
   return (allowed.has(value) ? value : 'allowed') as ReviewDecision;
 }
 
@@ -330,7 +343,7 @@ function normalizeDate(value: string | Date | undefined): Date | null {
 }
 
 function normalizeToolAction(value: string | undefined): ToolActivityAction {
-  const allowed = new Set<string>(agentToolActivityLogs.action.enumValues);
+  const allowed = new Set<string>(TOOL_ACTIVITY_ACTIONS);
   return (value && allowed.has(value) ? value : 'other') as ToolActivityAction;
 }
 
@@ -581,82 +594,52 @@ export async function writeReviewLogs(
     return identity;
   }
 
-  const values = await Promise.all(
+  return Promise.all(
     logs.map(async (log) => {
       const taskId = log.taskId ?? log.task_id ?? '';
       const identity = await identityFor(taskId);
-      return {
-        taskId,
-        traceId: log.traceId ?? log.trace_id ?? log.runId ?? log.run_id ?? null,
-        userId: identity.userId,
-        roles: identity.roles,
-        command: log.command,
-        level: log.level as 'L0' | 'L1' | 'L2',
-        score: normalizeScore(log.score),
-        decision: normalizeDecision(log.decision),
-        reason: log.reason ?? null,
-      };
+      const traceId =
+        log.traceId ?? log.trace_id ?? log.runId ?? log.run_id ?? null;
+      if (!traceId) {
+        throw new Error(
+          `Trace id is required for security review ${taskId || log.command}`,
+        );
+      }
+      const task = taskId ? await getTask(taskId) : null;
+      const decision = normalizeDecision(log.decision);
+      const score = normalizeScore(log.score);
+      return (
+        await ingestTraceSpan({
+          traceId,
+          spanId: `review:${taskId || 'unknown'}:${log.level}:${log.command}`,
+          parentSpanId: `model:${traceId}:0`,
+          source: 'agentd',
+          type: 'review',
+          status: decision,
+          startedAt: new Date(),
+          completedAt: new Date(),
+          durationMs: 0,
+          userId: identity.userId,
+          sessionId: task?.sessionId ?? null,
+          taskId: taskId || null,
+          workspaceId: task?.workspaceId ?? null,
+          agentId: task?.agentId ?? null,
+          output: { decision, score, reason: log.reason ?? null },
+          metadata: {
+            level: log.level,
+            decision,
+            score,
+            reason: log.reason ?? null,
+            command: log.command,
+          },
+          idempotencyKey:
+            log.idempotencyKey ??
+            log.idempotency_key ??
+            `review:${taskId}:${log.level}:${decision}:${log.command}`,
+        })
+      ).record;
     }),
   );
-
-  const rows = await db.insert(agentReviewLogs).values(values).returning();
-  const canonicalWrites = logs.map(async (log, index) => {
-    const taskId = log.taskId ?? log.task_id ?? '';
-    const identity = await identityFor(taskId);
-    const timestamp = rows[index]?.createdAt ?? new Date();
-    const traceId =
-      log.traceId ?? log.trace_id ?? log.runId ?? log.run_id ?? null;
-    if (!traceId) return;
-    return ingestTraceSpan({
-      traceId,
-      spanId: `review:${taskId || 'unknown'}:${log.level}:${timestamp.getTime()}`,
-      parentSpanId: `model:${traceId}:0`,
-      source: 'agentd',
-      type: 'review',
-      status: normalizeDecision(log.decision),
-      startedAt: timestamp,
-      completedAt: timestamp,
-      durationMs: 0,
-      userId: identity.userId,
-      sessionId: null,
-      taskId: taskId || null,
-      workspaceId: null,
-      agentId: null,
-      output: {
-        decision: normalizeDecision(log.decision),
-        score: normalizeScore(log.score),
-        reason: log.reason ?? null,
-      },
-      metadata: {
-        level: log.level,
-        decision: normalizeDecision(log.decision),
-        score: normalizeScore(log.score),
-        reason: log.reason ?? null,
-        command: log.command,
-      },
-      idempotencyKey:
-        log.idempotencyKey ??
-        log.idempotency_key ??
-        `review:${taskId}:${log.level}:${timestamp.toISOString()}:${log.decision}`,
-    });
-  });
-  const outcomes = await Promise.allSettled(canonicalWrites);
-  for (const outcome of outcomes) {
-    if (outcome.status === 'fulfilled' && outcome.value?.duplicate) {
-      traceLogger.info('canonical review duplicate suppressed', {
-        traceId: outcome.value.record.traceId,
-      });
-    }
-    if (outcome.status === 'rejected') {
-      traceLogger.error('canonical review dual-write failed', {
-        error:
-          outcome.reason instanceof Error
-            ? outcome.reason.message
-            : String(outcome.reason),
-      });
-    }
-  }
-  return rows;
 }
 
 // === Tool Activity Logs ===
@@ -778,71 +761,58 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
     }),
   );
 
-  const rows = await db
-    .insert(agentToolActivityLogs)
-    .values(values)
-    .returning();
-  const canonicalWrites = values.map(async (value, index) => {
-    if (!value.traceId) return;
-    const task = value.taskId ? await getTask(value.taskId) : null;
-    const original = logs[index];
-    const startedAt = value.startedAt;
-    const completedAt = value.completedAt;
-    return ingestTraceSpan({
-      traceId: value.traceId,
-      spanId: `tool:${value.toolCallId ?? value.toolName}:${startedAt.getTime()}`,
-      parentSpanId:
-        value.step !== null && value.step !== undefined
-          ? `model:${value.traceId}:${value.step}`
-          : null,
-      source: 'agentd',
-      type: 'tool',
-      status: value.success ? 'completed' : 'failed',
-      startedAt,
-      completedAt,
-      durationMs: value.durationMs,
-      userId: value.userId,
-      sessionId: value.sessionId,
-      taskId: value.taskId,
-      workspaceId: task?.workspaceId,
-      agentId: value.agentId,
-      input: value.arguments,
-      output: value.result,
-      error: value.error ? { message: value.error } : null,
-      metadata: {
-        toolName: value.toolName,
-        action: value.action,
-        target: value.target,
-        outputText: value.outputText,
-        model: value.model,
-        step: value.step,
-        toolCallId: value.toolCallId,
-        sandboxId: value.sandboxId,
-        source: value.source,
-      },
-      idempotencyKey:
-        original.idempotencyKey ??
-        original.idempotency_key ??
-        `tool:${value.taskId ?? value.sessionId ?? 'unknown'}:${value.toolCallId ?? value.toolName}:${startedAt.toISOString()}`,
-    });
-  });
-  const outcomes = await Promise.allSettled(canonicalWrites);
-  for (const outcome of outcomes) {
-    if (outcome.status === 'fulfilled' && outcome.value?.duplicate) {
-      traceLogger.info('canonical tool duplicate suppressed', {
-        traceId: outcome.value.record.traceId,
-      });
-    }
-    if (outcome.status === 'rejected') {
-      traceLogger.error('canonical tool dual-write failed', {
-        error:
-          outcome.reason instanceof Error
-            ? outcome.reason.message
-            : String(outcome.reason),
-      });
-    }
-  }
-  return rows;
+  return Promise.all(
+    values.map(async (value, index) => {
+      if (!value.traceId) {
+        throw new Error(
+          `Trace id is required for tool activity ${value.toolCallId ?? value.toolName}`,
+        );
+      }
+      const task = value.taskId ? await getTask(value.taskId) : null;
+      const original = logs[index];
+      const startedAt = value.startedAt;
+      const completedAt = value.completedAt;
+      return (
+        await ingestTraceSpan({
+          traceId: value.traceId,
+          spanId: `tool:${value.toolCallId ?? value.toolName}:${startedAt.getTime()}`,
+          parentSpanId:
+            value.step !== null && value.step !== undefined
+              ? `model:${value.traceId}:${value.step}`
+              : null,
+          source: 'agentd',
+          type: 'tool',
+          status: value.success ? 'completed' : 'failed',
+          startedAt,
+          completedAt,
+          durationMs: value.durationMs,
+          userId: value.userId,
+          sessionId: value.sessionId,
+          taskId: value.taskId,
+          workspaceId: task?.workspaceId,
+          agentId: value.agentId,
+          input: value.arguments,
+          output: value.result,
+          error: value.error ? { message: value.error } : null,
+          metadata: {
+            toolName: value.toolName,
+            action: value.action,
+            target: value.target,
+            outputText: value.outputText,
+            model: value.model,
+            step: value.step,
+            toolCallId: value.toolCallId,
+            sandboxId: value.sandboxId,
+            source: value.source,
+          },
+          idempotencyKey:
+            original.idempotencyKey ??
+            original.idempotency_key ??
+            `tool:${value.taskId ?? value.sessionId ?? 'unknown'}:${value.toolCallId ?? value.toolName}:${startedAt.toISOString()}`,
+        })
+      ).record;
+    }),
+  );
 }
 
 // === L0 Rules ===

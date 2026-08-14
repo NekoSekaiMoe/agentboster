@@ -2,13 +2,10 @@
 
 ## Status
 
-Implementation in progress on `main` after `feat/unified-trace` was reviewed,
-fixed, and merged.
+Implementation complete on `refactor/db-storage`.
 
-The current branch unifies Trace IDs, query APIs, and the product UI while
-preserving the existing model, tool activity, and security review storage.
-The follow-up must make the canonical Trace store the source of truth instead
-of extending the current cross-table aggregation layer.
+Canonical Trace storage is now the sole Trace read/write path. Domain-specific
+audit tables remain only for non-Trace workflows and historical backfill.
 
 ## Target Model
 
@@ -59,15 +56,12 @@ structured payload columns.
   the canonical tables.
 - Backfill records that can be correlated safely. Mark uncorrelatable history
   explicitly instead of inventing Trace IDs.
-- Deploy the Web receiver first. During a bounded compatibility window it must
-  accept both the legacy callback shape and the canonical envelope, normalize
-  both through an explicit protocol adapter, and dual-write old/new storage.
-- Upgrade agentd only after the compatible Web receiver is live. Stop
-  dual-write after all supported nodes meet the negotiated minimum protocol
-  version and duplicate/divergence metrics remain clean for the agreed window.
-- Rollback must keep both callback shapes accepted and resume legacy writes;
-  document the version-negotiation response and the exact rollback order.
-- Record metrics or logs for dual-write divergence and duplicate suppression.
+- The Web receiver accepts both the legacy callback shape and the canonical
+  envelope during the protocol compatibility window, but normalizes both into
+  canonical storage only.
+- Agentd callbacks require a propagated `run_id`; uncorrelatable historical
+  security records are not assigned fabricated Trace IDs.
+- Duplicate callbacks are suppressed by canonical idempotency constraints.
 - Bump the agentd version when the callback contract changes.
 - Run the matching SDK drift generators for Web, Workflow, and agentd shapes.
 - Verify both Vercel/Neon and self-hosted Postgres migration paths.
@@ -78,8 +72,8 @@ structured payload columns.
   the canonical store.
 - Remove cross-table Trace aggregation after backfill and dual-write validation
   are complete.
-- Keep legacy audit endpoints only for an explicit compatibility period; do
-  not leave them as a permanent second source of truth.
+- Keep the audit endpoints as UI/API contracts, but serve them exclusively from
+  canonical spans.
 - Preserve user and workspace isolation in every Trace query.
 
 ## Legacy Storage Retirement
@@ -88,10 +82,10 @@ structured payload columns.
   security review logs.
 - Decide which domain-specific records still have value outside tracing. Such
   records may remain, but Trace Explorer must not depend on them.
-- Stop legacy writes only after all supported producers use the canonical
-  ingestion contract.
-- Remove obsolete columns, indexes, DAL methods, API response fields, and UI
-  fallback code in a dedicated cleanup migration.
+- All supported producers now use the canonical ingestion contract. Legacy
+  aggregation, fallback reads, and dual-write code have been removed.
+- Domain tables and the backfill script remain only where needed for non-Trace
+  workflows or safe migration of historical rows.
 
 ## Acceptance Criteria
 

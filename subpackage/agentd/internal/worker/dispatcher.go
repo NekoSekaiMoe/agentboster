@@ -265,7 +265,7 @@ func (d *Dispatcher) handleTaskCreated(e eventbus.Event) {
 
 	result, logs := d.gatekeeper.Audit(ctx, task, "")
 
-	if len(logs) > 0 {
+	if len(logs) > 0 && task.RunID != "" {
 		if err := d.clawless.WriteReviewLogs(ctx, logs); err != nil {
 			slog.Error("failed to write review logs", "task_id", task.ID, "error", err)
 		}
@@ -573,6 +573,11 @@ func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
 	level, _ := payload["level"].(string)
 	reason, _ := payload["reason"].(string)
 	taskID, _ := payload["task_id"].(string)
+	sessionID, _ := payload["session_id"].(string)
+	runID, _ := payload["run_id"].(string)
+	if runID == "" {
+		runID = d.l2Mgr.RunIDForTask(taskID)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -581,6 +586,8 @@ func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
 	decision, _ := payload["decision"].(string)
 	log := clawless.ReviewLog{
 		TaskID:         taskID,
+		SessionID:      sessionID,
+		RunID:          runID,
 		Command:        fmt.Sprintf("%v", payload["command"]),
 		Level:          level,
 		Score:          1.0,
@@ -588,8 +595,12 @@ func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
 		Reason:         reason,
 		IdempotencyKey: fmt.Sprintf("review:%s:%s:%s:%s", taskID, level, decision, fmt.Sprintf("%v", payload["command"])),
 	}
-	if err := d.clawless.WriteReviewLogs(ctx, []clawless.ReviewLog{log}); err != nil {
-		slog.Warn("failed to write security alert review log", "task_id", taskID, "error", err)
+	if runID != "" {
+		if err := d.clawless.WriteReviewLogs(ctx, []clawless.ReviewLog{log}); err != nil {
+			slog.Warn("failed to write security alert review log", "task_id", taskID, "error", err)
+		}
+	} else {
+		slog.Warn("security alert has no trace id; canonical review skipped", "task_id", taskID)
 	}
 
 	// Send urgent notification for high-frequency L0 blocks or consecutive L1 high scores
@@ -700,6 +711,10 @@ func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 	command, _ := payload["command"].(string)
 	action, _ := payload["action"].(string)
 	duration, _ := payload["duration"].(string)
+	runID, _ := payload["run_id"].(string)
+	if runID == "" {
+		runID = d.l2Mgr.RunIDForTask(taskID)
+	}
 
 	if taskID == "" || command == "" {
 		slog.Warn("L2 auth event missing required fields", "task_id", taskID)
@@ -731,6 +746,7 @@ func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 
 	log := clawless.ReviewLog{
 		TaskID:         taskID,
+		RunID:          runID,
 		Level:          "L2",
 		Score:          0,
 		Decision:       decision,
@@ -738,7 +754,9 @@ func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 		Command:        command,
 		IdempotencyKey: fmt.Sprintf("review:%s:L2:%s:%s", taskID, decision, command),
 	}
-	if err := d.clawless.WriteReviewLogs(ctx, []clawless.ReviewLog{log}); err != nil {
+	if runID == "" {
+		slog.Warn("L2 auth has no trace id; canonical review skipped", "task_id", taskID)
+	} else if err := d.clawless.WriteReviewLogs(ctx, []clawless.ReviewLog{log}); err != nil {
 		slog.Error("failed to write L2 auth review log", "task_id", taskID, "error", err)
 	} else {
 		slog.Info("L2 auth review log written", "task_id", taskID, "decision", decision)

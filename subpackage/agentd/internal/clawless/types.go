@@ -117,15 +117,16 @@ type KeyFact struct {
 
 // ReviewLog represents a security review record.
 type ReviewLog struct {
-	TaskID   string   `json:"task_id"`
-	RunID    string   `json:"run_id,omitempty"`
-	UserID   string   `json:"user_id,omitempty"`
-	Roles    []string `json:"roles,omitempty"`
-	Command  string   `json:"command"`
-	Level    string   `json:"level"`
-	Score    float64  `json:"score"`
-	Decision string   `json:"decision"`
-	Reason   string   `json:"reason"`
+	TaskID    string   `json:"task_id"`
+	SessionID string   `json:"session_id,omitempty"`
+	RunID     string   `json:"run_id,omitempty"`
+	UserID    string   `json:"user_id,omitempty"`
+	Roles     []string `json:"roles,omitempty"`
+	Command   string   `json:"command"`
+	Level     string   `json:"level"`
+	Score     float64  `json:"score"`
+	Decision  string   `json:"decision"`
+	Reason    string   `json:"reason"`
 	// IdempotencyKey is reused when the callback is retried. The Web receiver
 	// enforces uniqueness per trace and record kind.
 	IdempotencyKey string    `json:"idempotency_key,omitempty"`

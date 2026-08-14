@@ -17,48 +17,27 @@ const DDL = [
   )`,
   `CREATE TABLE "agent_tasks" (
     "id" uuid PRIMARY KEY,
-    "session_id" uuid,
-    "user_id" text,
-    "source" jsonb
-  )`,
-  `CREATE TABLE "agent_review_logs" (
-    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-    "task_id" uuid NOT NULL,
-    "trace_id" text,
-    "user_id" text,
-    "roles" text[],
-    "command" text NOT NULL,
-    "level" text NOT NULL,
-    "score" integer,
-    "decision" text NOT NULL,
-    "reason" text,
-    "created_at" timestamptz DEFAULT now() NOT NULL
-  )`,
-  `CREATE TABLE "agent_tool_activity_logs" (
-    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-    "task_id" uuid,
-    "session_id" uuid,
-    "trace_id" text,
     "agent_id" text NOT NULL,
+    "session_id" uuid,
     "user_id" text,
-    "roles" text[],
-    "source" jsonb,
+    "workspace_id" uuid,
+    "command" text NOT NULL,
+    "sandbox_type" text DEFAULT 'auto' NOT NULL,
     "sandbox_id" text,
-    "model" text,
-    "step" integer,
-    "tool_call_id" text,
-    "tool_name" text NOT NULL,
-    "action" text NOT NULL,
-    "target" text,
-    "arguments" jsonb,
-    "result" jsonb,
-    "output_text" text,
-    "success" boolean DEFAULT false NOT NULL,
-    "error" text,
-    "duration_ms" integer,
-    "started_at" timestamptz NOT NULL,
-    "completed_at" timestamptz,
-    "created_at" timestamptz DEFAULT now() NOT NULL
+    "source" jsonb,
+    "env" jsonb,
+    "timeout" integer,
+    "status" text DEFAULT 'pending' NOT NULL,
+    "result" text,
+    "failure_reason" text,
+    "attempt" integer DEFAULT 1 NOT NULL,
+    "max_attempts" integer DEFAULT 2 NOT NULL,
+    "retry_of_task_id" uuid,
+    "rerun_of_task_id" uuid,
+    "owner_node_id" text,
+    "lease_expires_at" timestamptz,
+    "created_at" timestamptz DEFAULT now() NOT NULL,
+    "updated_at" timestamptz DEFAULT now() NOT NULL
   )`,
   `CREATE TABLE "trace_runs" (
     "trace_id" text PRIMARY KEY,
@@ -137,8 +116,6 @@ const taskId = '00000000-0000-0000-0000-000000000002';
 describe('agentd trace propagation', () => {
   beforeEach(async () => {
     await resetDb(harness.db, [
-      'agent_tool_activity_logs',
-      'agent_review_logs',
       'agent_tasks',
       'trace_spans',
       'trace_runs',
@@ -151,9 +128,13 @@ describe('agentd trace propagation', () => {
     await harness.db.execute(
       sql`INSERT INTO "sessions" ("id", "user_id") VALUES (${sessionId}::uuid, 'user-1')`,
     );
-    await harness.db.execute(
-      sql`INSERT INTO "agent_tasks" ("id", "session_id", "user_id") VALUES (${taskId}::uuid, ${sessionId}::uuid, 'user-1')`,
-    );
+    await harness.db.execute(sql`
+      INSERT INTO "agent_tasks" (
+        "id", "agent_id", "session_id", "user_id", "command"
+      ) VALUES (
+        ${taskId}::uuid, 'main', ${sessionId}::uuid, 'user-1', 'read README.md'
+      )
+    `);
   });
 
   it('stores run_id as the canonical trace_id for tool and review callbacks', async () => {
@@ -182,21 +163,6 @@ describe('agentd trace propagation', () => {
 
     expect(tool.traceId).toBe('run-web-1');
     expect(review.traceId).toBe('run-web-1');
-
-    const activityRows = (
-      await harness.db.execute(
-        sql`SELECT "trace_id", "user_id" FROM "agent_tool_activity_logs"`,
-      )
-    ).rows as Array<{ trace_id: string; user_id: string }>;
-    const reviewRows = (
-      await harness.db.execute(
-        sql`SELECT "trace_id", "user_id" FROM "agent_review_logs"`,
-      )
-    ).rows as Array<{ trace_id: string; user_id: string }>;
-    expect(activityRows).toEqual([
-      { trace_id: 'run-web-1', user_id: 'user-1' },
-    ]);
-    expect(reviewRows).toEqual([{ trace_id: 'run-web-1', user_id: 'user-1' }]);
 
     const canonicalRows = (
       await harness.db.execute(

@@ -325,11 +325,88 @@ func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
 // ── Review Logs ──────────────────────────────────────────────────────
 
 func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
-	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/review-logs", logs)
+	canonical := make([]map[string]any, 0, len(logs))
+	for _, log := range logs {
+		if log.RunID == "" {
+			return fmt.Errorf("review log %q has no run_id", log.Command)
+		}
+		startedAt := log.Timestamp
+		if startedAt.IsZero() {
+			startedAt = time.Now().UTC()
+		}
+		idempotencyKey := log.IdempotencyKey
+		if idempotencyKey == "" {
+			idempotencyKey = fmt.Sprintf("review:%s:%s:%s:%s", log.TaskID, log.Level, log.Decision, log.Command)
+		}
+		canonical = append(canonical, map[string]any{
+			"record_kind":     "span",
+			"trace_id":        log.RunID,
+			"span_id":         "review:" + idempotencyKey,
+			"parent_span_id":  "model:" + log.RunID + ":0",
+			"source":          "agentd",
+			"type":            "review",
+			"status":          log.Decision,
+			"started_at":      startedAt,
+			"completed_at":    startedAt,
+			"duration_ms":     0,
+			"task_id":         log.TaskID,
+			"idempotency_key": idempotencyKey,
+			"output":          map[string]any{"decision": log.Decision, "score": log.Score, "reason": log.Reason},
+			"metadata":        map[string]any{"level": log.Level, "decision": log.Decision, "score": log.Score, "reason": log.Reason, "command": log.Command},
+			"session_id":      log.SessionID,
+		})
+	}
+	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/review-logs", canonical)
 }
 
 func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityLog) error {
-	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/tool-activity-logs", logs)
+	canonical := make([]map[string]any, 0, len(logs))
+	for _, log := range logs {
+		if log.RunID == "" {
+			return fmt.Errorf("tool activity %q has no run_id", log.ToolName)
+		}
+		startedAt := log.StartedAt
+		if startedAt.IsZero() {
+			startedAt = time.Now().UTC()
+		}
+		idempotencyKey := log.IdempotencyKey
+		if idempotencyKey == "" {
+			idempotencyKey = fmt.Sprintf("tool:%s:%s:%s", log.TaskID, log.ToolCallID, startedAt.UTC().Format(time.RFC3339Nano))
+		}
+		status := "completed"
+		if !log.Success {
+			status = "failed"
+		}
+		var completedAt any
+		if !log.CompletedAt.IsZero() {
+			completedAt = log.CompletedAt
+		}
+		canonical = append(canonical, map[string]any{
+			"record_kind":     "span",
+			"trace_id":        log.RunID,
+			"span_id":         "tool:" + idempotencyKey,
+			"parent_span_id":  "model:" + log.RunID + ":" + fmt.Sprint(log.Step),
+			"source":          "agentd",
+			"type":            "tool",
+			"status":          status,
+			"started_at":      startedAt,
+			"completed_at":    completedAt,
+			"duration_ms":     log.DurationMs,
+			"task_id":         log.TaskID,
+			"session_id":      log.SessionID,
+			"agent_id":        log.AgentID,
+			"input":           log.Arguments,
+			"output":          log.Result,
+			"error":           log.Error,
+			"idempotency_key": idempotencyKey,
+			"metadata": map[string]any{
+				"toolName": log.ToolName, "action": log.Action, "target": log.Target,
+				"outputText": log.OutputText, "model": log.Model, "step": log.Step,
+				"toolCallId": log.ToolCallID, "sandboxId": log.SandboxID,
+			},
+		})
+	}
+	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/tool-activity-logs", canonical)
 }
 
 // ── Memories ─────────────────────────────────────────────────────────

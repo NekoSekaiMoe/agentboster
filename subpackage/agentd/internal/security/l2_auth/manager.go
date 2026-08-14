@@ -51,24 +51,26 @@ type L2AuthEntry struct {
 // L2AuthManager manages L2 cache (local fast path).
 // DecisionQueue, pending tasks, and persistence moved to clawless web layer.
 type L2AuthManager struct {
-	mu         sync.RWMutex
-	entries    map[string]*L2AuthEntry
-	pending    map[string]CacheKey
-	clawless   *clawless.Client
-	bus        *eventbus.Bus
-	agentID    string
-	sessionID  string
-	escalation time.Duration
+	mu            sync.RWMutex
+	entries       map[string]*L2AuthEntry
+	pending       map[string]CacheKey
+	pendingRunIDs map[string]string
+	clawless      *clawless.Client
+	bus           *eventbus.Bus
+	agentID       string
+	sessionID     string
+	escalation    time.Duration
 }
 
 // NewL2AuthManager creates a new L2 auth manager (cache only).
 func NewL2AuthManager(client *clawless.Client, agentID string) *L2AuthManager {
 	return &L2AuthManager{
-		entries:    make(map[string]*L2AuthEntry),
-		pending:    make(map[string]CacheKey),
-		clawless:   client,
-		agentID:    agentID,
-		escalation: 5 * time.Minute,
+		entries:       make(map[string]*L2AuthEntry),
+		pending:       make(map[string]CacheKey),
+		pendingRunIDs: make(map[string]string),
+		clawless:      client,
+		agentID:       agentID,
+		escalation:    5 * time.Minute,
 	}
 }
 
@@ -143,6 +145,16 @@ func (m *L2AuthManager) RememberPendingTask(task *clawless.Task) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.pending[task.ID] = CacheKeyForTask(task)
+	if task.RunID != "" {
+		m.pendingRunIDs[task.ID] = task.RunID
+	}
+}
+
+// RunIDForTask returns the trace id captured when an L2 decision was opened.
+func (m *L2AuthManager) RunIDForTask(taskID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.pendingRunIDs[taskID]
 }
 
 // Authorize records a pass authorization decision for the given pattern and duration.
@@ -278,6 +290,7 @@ func (m *L2AuthManager) ClearSession(sessionID string) {
 	for taskID, cacheKey := range m.pending {
 		if cacheKey.SessionID == sessionID {
 			delete(m.pending, taskID)
+			delete(m.pendingRunIDs, taskID)
 			removedPending++
 		}
 	}
@@ -320,37 +333,6 @@ type ExpiredEntry struct {
 	ExpiresAt time.Time
 }
 
-// WriteExpiredReviewLogs writes review logs for expired L2 authorizations via ClawLess API.
-func (m *L2AuthManager) WriteExpiredReviewLogs(ctx context.Context, entries []ExpiredEntry) {
-	m.mu.RLock()
-	client := m.clawless
-	m.mu.RUnlock()
-
-	if client == nil || len(entries) == 0 {
-		return
-	}
-
-	logs := make([]clawless.ReviewLog, 0, len(entries))
-	for _, e := range entries {
-		logs = append(logs, clawless.ReviewLog{
-			TaskID:   e.SessionID,
-			Command:  e.Pattern,
-			Level:    "L2",
-			Score:    0,
-			Decision: "expired",
-			Reason: fmt.Sprintf(
-				"L2 授权已过期：session_id=%s, pattern=%s, action=%s, expired_at=%s",
-				e.SessionID, e.Pattern, e.Action, e.ExpiresAt.Format(time.RFC3339),
-			),
-			IdempotencyKey: fmt.Sprintf("review:%s:L2:expired:%s", e.SessionID, e.Pattern),
-		})
-	}
-
-	if err := client.WriteReviewLogs(ctx, logs); err != nil {
-		slog.Error("failed to write L2 expiry review logs", "error", err, "count", len(logs))
-	}
-}
-
 // StartCleanup starts a background goroutine to clean expired entries every 30 seconds.
 func (m *L2AuthManager) StartCleanup() (stop func()) {
 	return m.StartCleanupWithInterval(cleanupInterval)
@@ -365,10 +347,7 @@ func (m *L2AuthManager) StartCleanupWithInterval(interval time.Duration) (stop f
 		for {
 			select {
 			case <-ticker.C:
-				expired := m.ExpireStale()
-				if len(expired) > 0 {
-					m.WriteExpiredReviewLogs(ctx, expired)
-				}
+				m.ExpireStale()
 			case <-ctx.Done():
 				return
 			}

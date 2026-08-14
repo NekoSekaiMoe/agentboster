@@ -26,19 +26,21 @@ const (
 
 // ReviewResult holds the full review result from all tiers.
 type ReviewResult struct {
-	Decision ReviewDecision
-	L0Result *l0_rules.L0Result
-	L1Result *clawless.L1Result
-	TaskID   string
-	RunID    string
-	Command  string
-	Reason   string
+	Decision  ReviewDecision
+	L0Result  *l0_rules.L0Result
+	L1Result  *clawless.L1Result
+	TaskID    string
+	SessionID string
+	RunID     string
+	Command   string
+	Reason    string
 }
 
 // ReviewLog creates a ReviewLog from the review result.
 func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason string) clawless.ReviewLog {
 	return clawless.ReviewLog{
 		TaskID:         r.TaskID,
+		SessionID:      r.SessionID,
 		RunID:          r.RunID,
 		Command:        r.Command,
 		Level:          level,
@@ -189,9 +191,10 @@ func maxFloat(a, b float64) float64 {
 // Returns the decision and review logs for each tier.
 func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSummary string) (*ReviewResult, []clawless.ReviewLog) {
 	result := &ReviewResult{
-		TaskID:  task.ID,
-		RunID:   task.RunID,
-		Command: task.Command,
+		TaskID:    task.ID,
+		SessionID: task.SessionID,
+		RunID:     task.RunID,
+		Command:   task.Command,
 	}
 	logs := make([]clawless.ReviewLog, 0, 3)
 
@@ -219,6 +222,7 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 		// Publish security alert
 		g.bus.Publish(eventbus.EventSecurityAlert, map[string]any{
 			"task_id":  task.ID,
+			"run_id":   task.RunID,
 			"level":    "L0",
 			"decision": "blocked",
 			"reason":   l0Result.Reason,
@@ -275,6 +279,7 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 		// Publish notification event (non-blocking)
 		g.bus.Publish(eventbus.EventSecurityAlert, map[string]any{
 			"task_id":  task.ID,
+			"run_id":   task.RunID,
 			"level":    "L1",
 			"score":    l1Result.Score,
 			"decision": "allowed_with_warning",
@@ -334,9 +339,12 @@ func l1Action(r *clawless.L1Result) string {
 
 // AuditOutput validates LLM output content through the security pipeline.
 // L0 checks for known leak patterns, L1 scores for anomalous output.
-func (g *Gatekeeper) AuditOutput(ctx context.Context, output string, sessionSummary string) (*ReviewResult, []clawless.ReviewLog) {
+func (g *Gatekeeper) AuditOutput(ctx context.Context, output string, sessionSummary, taskID, sessionID, runID string) (*ReviewResult, []clawless.ReviewLog) {
 	result := &ReviewResult{
-		Command: output,
+		TaskID:    taskID,
+		SessionID: sessionID,
+		RunID:     runID,
+		Command:   output,
 	}
 	logs := make([]clawless.ReviewLog, 0, 2)
 
@@ -349,10 +357,13 @@ func (g *Gatekeeper) AuditOutput(ctx context.Context, output string, sessionSumm
 		logs = append(logs, result.ReviewLog("L0-output", 1.0, "blocked", l0Result.Reason))
 
 		g.bus.Publish(eventbus.EventSecurityAlert, map[string]any{
-			"level":    "L0-output",
-			"decision": "blocked",
-			"reason":   l0Result.Reason,
-			"rule_id":  l0Result.Rule.ID,
+			"task_id":    taskID,
+			"session_id": sessionID,
+			"run_id":     runID,
+			"level":      "L0-output",
+			"decision":   "blocked",
+			"reason":     l0Result.Reason,
+			"rule_id":    l0Result.Rule.ID,
 		})
 		return result, logs
 	}
@@ -375,10 +386,13 @@ func (g *Gatekeeper) AuditOutput(ctx context.Context, output string, sessionSumm
 		result.Decision = DecisionBlocked
 		result.Reason = "L1 output risk: " + l1Result.Reason
 		g.bus.Publish(eventbus.EventSecurityAlert, map[string]any{
-			"level":    "L1-output",
-			"score":    l1Result.Score,
-			"decision": "blocked",
-			"reason":   l1Result.Reason,
+			"task_id":    taskID,
+			"session_id": sessionID,
+			"run_id":     runID,
+			"level":      "L1-output",
+			"score":      l1Result.Score,
+			"decision":   "blocked",
+			"reason":     l1Result.Reason,
 		})
 	case l1Result.Level == "medium":
 		result.Decision = DecisionAllowed
@@ -419,6 +433,7 @@ func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *clawless.L1Res
 
 	g.bus.Publish(eventbus.EventL2AuthRequired, map[string]any{
 		"task_id":        task.ID,
+		"run_id":         task.RunID,
 		"command":        task.Command,
 		"command_review": commandReview,
 		"score":          l1Result.Score,

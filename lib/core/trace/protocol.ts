@@ -24,11 +24,7 @@ function dateValue(value: unknown): Date | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
-/**
- * Explicit compatibility adapter for agentd callbacks. Legacy activity and
- * review payloads intentionally do not enter this function; callers can
- * route them to their existing domain writers during the dual-write window.
- */
+/** Normalize canonical callbacks and the short-lived agentd compatibility shape. */
 export function normalizeTraceCallback(
   value: unknown,
 ): NormalizedTraceCallback | null {
@@ -45,29 +41,75 @@ export function normalizeTraceCallback(
     Boolean(stringValue(body.span_id ?? body.spanId)) ||
     Boolean(stringValue(body.event_id ?? body.eventId)) ||
     Boolean(kind);
-  if (!hasCanonicalIdentity) return null;
 
-  const traceId = stringValue(body.trace_id ?? body.traceId);
-  const idempotencyKey = stringValue(
-    body.idempotency_key ?? body.idempotencyKey,
+  const traceId = stringValue(
+    body.trace_id ?? body.traceId ?? body.run_id ?? body.runId,
   );
+  let idempotencyKey = stringValue(body.idempotency_key ?? body.idempotencyKey);
   const source = stringValue(body.source) ?? 'agentd';
-  const type = stringValue(body.type ?? body.event_type ?? body.eventType);
+  let type = stringValue(body.type ?? body.event_type ?? body.eventType);
+  const legacyReview = !hasCanonicalIdentity && Boolean(body.command);
+  const legacyTool =
+    !hasCanonicalIdentity && Boolean(body.tool_name ?? body.toolName);
+  if (!hasCanonicalIdentity && !legacyReview && !legacyTool) return null;
+  if (legacyReview || legacyTool) {
+    type = legacyReview ? 'review' : 'tool';
+    idempotencyKey ??= legacyReview
+      ? `review:${stringValue(body.task_id ?? body.taskId) ?? 'unknown'}:${stringValue(body.level) ?? 'unknown'}:${stringValue(body.decision) ?? 'unknown'}:${stringValue(body.command) ?? ''}`
+      : `tool:${stringValue(body.task_id ?? body.taskId) ?? 'unknown'}:${stringValue(body.tool_call_id ?? body.toolCallId) ?? stringValue(body.tool_name ?? body.toolName) ?? 'unknown'}:${stringValue(body.started_at ?? body.startedAt) ?? ''}`;
+  }
   if (!traceId || !idempotencyKey || !type) return null;
 
   const resolvedKind = kind ?? (type === 'event' ? 'event' : 'span');
+  const taskId = stringValue(body.task_id ?? body.taskId);
+  const sessionId = stringValue(body.session_id ?? body.sessionId);
+  const metadata =
+    body.metadata && typeof body.metadata === 'object'
+      ? { ...(body.metadata as Record<string, unknown>) }
+      : {};
+  if (legacyReview) {
+    Object.assign(metadata, {
+      command: stringValue(body.command) ?? '',
+      level: stringValue(body.level) ?? 'unknown',
+      score: typeof body.score === 'number' ? body.score : null,
+      decision: stringValue(body.decision) ?? 'unknown',
+      reason: stringValue(body.reason),
+    });
+  }
+  if (legacyTool) {
+    Object.assign(metadata, {
+      toolName: stringValue(body.tool_name ?? body.toolName) ?? 'unknown',
+      action: stringValue(body.action) ?? 'other',
+      target: stringValue(body.target),
+      outputText: stringValue(body.output_text ?? body.outputText),
+    });
+  }
   return {
     kind: resolvedKind,
-    taskId: stringValue(body.task_id ?? body.taskId),
-    sessionId: stringValue(body.session_id ?? body.sessionId),
+    taskId,
+    sessionId,
     envelope: {
       traceId,
       eventId: stringValue(body.event_id ?? body.eventId) ?? undefined,
-      spanId: stringValue(body.span_id ?? body.spanId),
+      spanId:
+        stringValue(body.span_id ?? body.spanId) ??
+        (legacyReview
+          ? `review:${idempotencyKey}`
+          : legacyTool
+            ? `tool:${idempotencyKey}`
+            : null),
       parentSpanId: stringValue(body.parent_span_id ?? body.parentSpanId),
       source,
       type,
-      status: stringValue(body.status) ?? 'pending',
+      status:
+        stringValue(body.status) ??
+        (legacyReview
+          ? (stringValue(body.decision) ?? 'completed')
+          : legacyTool
+            ? body.success === false
+              ? 'failed'
+              : 'completed'
+            : 'pending'),
       startedAt: dateValue(body.started_at ?? body.startedAt),
       completedAt: dateValue(body.completed_at ?? body.completedAt) ?? null,
       durationMs:
@@ -76,17 +118,14 @@ export function normalizeTraceCallback(
           : typeof body.durationMs === 'number'
             ? body.durationMs
             : null,
-      sessionId: stringValue(body.session_id ?? body.sessionId),
-      taskId: stringValue(body.task_id ?? body.taskId),
+      sessionId,
+      taskId,
       nodeId: stringValue(body.node_id ?? body.nodeId),
       agentId: stringValue(body.agent_id ?? body.agentId),
-      input: body.input,
-      output: body.output,
+      input: body.input ?? body.arguments,
+      output: body.output ?? body.result,
       error: body.error,
-      metadata:
-        body.metadata && typeof body.metadata === 'object'
-          ? (body.metadata as Record<string, unknown>)
-          : null,
+      metadata,
       idempotencyKey,
     },
   };
