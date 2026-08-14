@@ -342,6 +342,7 @@ func (m *L2AuthManager) WriteExpiredReviewLogs(ctx context.Context, entries []Ex
 				"L2 授权已过期：session_id=%s, pattern=%s, action=%s, expired_at=%s",
 				e.SessionID, e.Pattern, e.Action, e.ExpiresAt.Format(time.RFC3339),
 			),
+			IdempotencyKey: fmt.Sprintf("review:%s:L2:expired:%s", e.SessionID, e.Pattern),
 		})
 	}
 

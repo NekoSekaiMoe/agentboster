@@ -5,6 +5,7 @@ import {
   updateSession,
 } from '@/lib/core/db/chat';
 import { agentdNodes } from '@/lib/core/db/schema';
+import { ensureTraceRun } from '@/lib/core/trace/dal';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
 import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
 import { createLogger } from '@/lib/utils/logger';
@@ -325,6 +326,24 @@ export async function startWorkflow(input: {
   logger.info('startWorkflow:awaiting_run');
   const run = await startWithTimeout;
   logger.info('startWorkflow:run_obtained', { runId: run.runId });
+
+  const sessionBeforeUpdate = await getSession(input.sessionId);
+  await ensureTraceRun({
+    traceId: run.runId,
+    spanId: `run:${run.runId}`,
+    source: input.source.type,
+    type: 'run',
+    status: 'running',
+    userId:
+      'userId' in input.source
+        ? (input.source.userId ?? sessionBeforeUpdate?.userId)
+        : sessionBeforeUpdate?.userId,
+    sessionId: input.sessionId,
+    workspaceId: sessionBeforeUpdate?.workspaceId,
+    input: { model: input.requestModel ?? sessionBeforeUpdate?.model },
+    metadata: { producer: 'workflow.dispatch' },
+    idempotencyKey: `run:${run.runId}`,
+  });
 
   await updateSession(input.sessionId, {
     workflowRunId: run.runId,

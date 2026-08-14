@@ -10,13 +10,14 @@ export type TraceJson = Record<string, unknown>;
 export interface TraceModelRow {
   id: string;
   traceId: string;
-  sessionId: string;
+  sessionId: string | null;
   sessionTitle: string | null;
   userId: string | null;
   role: string;
   stepNumber: number | null;
   payload: TraceJson;
   createdAt: Date | string;
+  sequence?: number;
   hint?: TraceStatusHint;
 }
 
@@ -38,6 +39,7 @@ export interface TraceToolRow {
   durationMs: number | null;
   startedAt: Date | string;
   completedAt: Date | string | null;
+  sequence?: number;
   hint?: TraceStatusHint;
 }
 
@@ -55,6 +57,7 @@ export interface TraceReviewRow {
   command: string;
   reason: string | null;
   createdAt: Date | string;
+  sequence?: number;
   hint?: TraceStatusHint;
 }
 
@@ -79,6 +82,8 @@ export interface TraceEvent {
   completedAt: string | null;
   durationMs: number | null;
   details: TraceJson;
+  /** Canonical store ordering key. Legacy rows omit it and use timestamps. */
+  sequence?: number;
 }
 
 export interface TraceSummary {
@@ -106,9 +111,15 @@ export interface TraceDetail {
 
 export interface TraceRows {
   traceId: string;
+  run?: {
+    startedAt: Date | string;
+    completedAt: Date | string | null;
+    durationMs: number | null;
+  };
   models?: TraceModelRow[];
   tools?: TraceToolRow[];
   reviews?: TraceReviewRow[];
+  events?: TraceEvent[];
   hint?: TraceStatusHint;
 }
 
@@ -286,6 +297,9 @@ function buildModelEvents(
         totalTokens,
         rowCount: group.length,
       },
+      sequence: Math.min(
+        ...group.map((row) => row.sequence ?? Number.MAX_SAFE_INTEGER),
+      ),
     } satisfies TraceEvent;
   });
 }
@@ -316,6 +330,7 @@ function buildToolEvents(traceId: string, rows: TraceToolRow[]): TraceEvent[] {
       agentId: row.agentId,
       sessionId: row.sessionId,
     },
+    sequence: row.sequence,
   }));
 }
 
@@ -346,6 +361,7 @@ function buildReviewEvents(
         agentId: row.agentId,
         sessionId: row.sessionId,
       },
+      sequence: row.sequence,
     } satisfies TraceEvent;
   });
 }
@@ -361,7 +377,13 @@ export function buildTraceEvents(rows: TraceRows): TraceEvent[] {
     ...buildModelEvents(rows.traceId, rows.models ?? []),
     ...buildToolEvents(rows.traceId, rows.tools ?? []),
     ...buildReviewEvents(rows.traceId, rows.reviews ?? []),
+    ...(rows.events ?? []),
   ].sort((left, right) => {
+    if (left.sequence !== undefined && right.sequence !== undefined) {
+      const sequenceDiff = left.sequence - right.sequence;
+      if (sequenceDiff !== 0) return sequenceDiff;
+      return left.id.localeCompare(right.id);
+    }
     const timeDiff = left.startedAt.localeCompare(right.startedAt);
     return timeDiff !== 0
       ? timeDiff
@@ -382,6 +404,7 @@ export function buildTraceSummary(
   const hint =
     rows.hint ?? firstModel?.hint ?? firstTool?.hint ?? firstReview?.hint;
   const startedAt = minIso([
+    rows.run?.startedAt,
     ...models.map((row) => row.createdAt),
     ...tools.map((row) => row.startedAt),
     ...reviews.map((row) => row.createdAt),
@@ -390,7 +413,11 @@ export function buildTraceSummary(
   const statusFromHint = hintStatus(rows.traceId, hint);
   const status = statusFromHint ?? eventStatus(events);
   const completedAt =
-    status === 'running' ? null : (asIso(hint?.stoppedAt) ?? latestCompletedAt);
+    status === 'running'
+      ? null
+      : (asIso(hint?.stoppedAt) ??
+        asIso(rows.run?.completedAt) ??
+        latestCompletedAt);
   const failedEvents = events.filter((event) => event.status === 'failed');
   const lastFailure = failedEvents.at(-1);
   const details = lastFailure?.details ?? {};
@@ -424,7 +451,7 @@ export function buildTraceSummary(
     durationMs:
       status === 'running'
         ? durationMs(startedAt, new Date().toISOString())
-        : durationMs(startedAt, completedAt),
+        : durationMs(startedAt, completedAt, rows.run?.durationMs),
     modelStepCount: new Set(
       models.map((row) => String(row.stepNumber ?? 'unknown')),
     ).size,
@@ -455,6 +482,8 @@ export function mergeTraceRows(groups: TraceRows[]): TraceRows[] {
     current.models = [...(current.models ?? []), ...(group.models ?? [])];
     current.tools = [...(current.tools ?? []), ...(group.tools ?? [])];
     current.reviews = [...(current.reviews ?? []), ...(group.reviews ?? [])];
+    current.events = [...(current.events ?? []), ...(group.events ?? [])];
+    current.run = current.run ?? group.run;
     current.hint = current.hint ?? group.hint;
     merged.set(group.traceId, current);
   }

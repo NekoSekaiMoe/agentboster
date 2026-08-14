@@ -1,9 +1,13 @@
 import { requireAuthAccess } from '@/lib/auth/access';
 import { db } from '@/lib/core/db';
 import { agentToolActivityLogs } from '@/lib/core/db/schema';
+import { listCanonicalToolSpans } from '@/lib/core/trace/dal';
+import { createLogger } from '@/lib/utils/logger';
 import { type SQL, and, desc, eq, gte, ilike, lte, or } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+
+const logger = createLogger('api.config.tool-activity-logs');
 
 function parseLimit(value: string | null): number {
   const parsed = Number(value ?? 500);
@@ -29,6 +33,77 @@ export async function GET(request: Request) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
     const limit = parseLimit(searchParams.get('limit'));
+
+    const canonicalRows = await listCanonicalToolSpans({
+      userId: access.isAdmin ? undefined : access.session.userId,
+      limit: 10000,
+    });
+    if (canonicalRows.length > 0) {
+      const logs = canonicalRows
+        .map((row) => {
+          const metadata =
+            row.metadata && typeof row.metadata === 'object'
+              ? row.metadata
+              : {};
+          return {
+            id: row.id,
+            taskId: row.taskId,
+            sessionId: row.sessionId,
+            traceId: row.traceId,
+            agentId: row.agentId ?? 'unknown',
+            toolName:
+              typeof metadata.toolName === 'string'
+                ? metadata.toolName
+                : row.type,
+            action:
+              typeof metadata.action === 'string' ? metadata.action : 'other',
+            target:
+              typeof metadata.target === 'string' ? metadata.target : null,
+            arguments: row.input,
+            result: row.output,
+            outputText:
+              typeof metadata.outputText === 'string'
+                ? metadata.outputText
+                : null,
+            success: row.status !== 'failed',
+            error:
+              row.error &&
+              typeof row.error === 'object' &&
+              'message' in row.error
+                ? String((row.error as { message?: unknown }).message ?? '')
+                : null,
+            durationMs: row.durationMs,
+            startedAt: row.startedAt,
+            completedAt: row.completedAt,
+            createdAt: row.createdAt,
+          };
+        })
+        .filter((log) => {
+          if (action && log.action !== action) return false;
+          if (toolName && log.toolName !== toolName) return false;
+          if (search) {
+            const needle = search.toLowerCase();
+            if (
+              ![log.toolName, log.target, log.outputText, log.error]
+                .filter((value): value is string => Boolean(value))
+                .some((value) => value.toLowerCase().includes(needle))
+            ) {
+              return false;
+            }
+          }
+          if (taskId && log.taskId !== taskId) return false;
+          if (sessionId && log.sessionId !== sessionId) return false;
+          if (agentId && log.agentId !== agentId) return false;
+          if (success === 'true' && !log.success) return false;
+          if (success === 'false' && log.success) return false;
+          if (from && log.createdAt < new Date(from)) return false;
+          if (to && log.createdAt > new Date(to)) return false;
+          return true;
+        })
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, limit);
+      return NextResponse.json(logs);
+    }
 
     const conditions: SQL[] = [];
     if (action) {
@@ -83,7 +158,9 @@ export async function GET(request: Request) {
 
     return NextResponse.json(logs);
   } catch (error) {
-    console.error('Failed to fetch tool activity logs:', error);
+    logger.error('Failed to fetch tool activity logs', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { error: 'Failed to fetch tool activity logs' },
       { status: 500 },

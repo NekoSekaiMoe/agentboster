@@ -580,12 +580,13 @@ func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
 	// Write review log for audit trail
 	decision, _ := payload["decision"].(string)
 	log := clawless.ReviewLog{
-		TaskID:   taskID,
-		Command:  fmt.Sprintf("%v", payload["command"]),
-		Level:    level,
-		Score:    1.0,
-		Decision: decision,
-		Reason:   reason,
+		TaskID:         taskID,
+		Command:        fmt.Sprintf("%v", payload["command"]),
+		Level:          level,
+		Score:          1.0,
+		Decision:       decision,
+		Reason:         reason,
+		IdempotencyKey: fmt.Sprintf("review:%s:%s:%s:%s", taskID, level, decision, fmt.Sprintf("%v", payload["command"])),
 	}
 	if err := d.clawless.WriteReviewLogs(ctx, []clawless.ReviewLog{log}); err != nil {
 		slog.Warn("failed to write security alert review log", "task_id", taskID, "error", err)
@@ -729,12 +730,13 @@ func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 	}
 
 	log := clawless.ReviewLog{
-		TaskID:   taskID,
-		Level:    "L2",
-		Score:    0,
-		Decision: decision,
-		Reason:   fmt.Sprintf("User %s: duration=%s", action, duration),
-		Command:  command,
+		TaskID:         taskID,
+		Level:          "L2",
+		Score:          0,
+		Decision:       decision,
+		Reason:         fmt.Sprintf("User %s: duration=%s", action, duration),
+		Command:        command,
+		IdempotencyKey: fmt.Sprintf("review:%s:L2:%s:%s", taskID, decision, command),
 	}
 	if err := d.clawless.WriteReviewLogs(ctx, []clawless.ReviewLog{log}); err != nil {
 		slog.Error("failed to write L2 auth review log", "task_id", taskID, "error", err)

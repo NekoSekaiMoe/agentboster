@@ -47,6 +47,8 @@ export {
 export { userVaultEntries, vaultAuditLogs, vaultEntries } from './vault';
 export { taskUsage, nodeUsageDaily } from './usage';
 export { l2Decisions } from './l2-decisions';
+export { traceRuns, traceSpans, traceEvents } from './trace';
+export type { TraceRun, TraceSpan, TraceEventRecord } from './trace';
 export type { L2Decision, NewL2Decision } from './l2-decisions';
 export { agentBarriers, agentBarrierReleases } from './agent-barriers';
 export type {

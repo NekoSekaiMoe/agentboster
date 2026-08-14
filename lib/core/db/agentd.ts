@@ -34,6 +34,10 @@ import {
 import { atomicWriteMode } from './atomic';
 import { bumpSharedMemoryVersion } from '@/lib/memory/shared-version';
 import type { Decision } from './schema';
+import { ingestTraceSpan } from '@/lib/core/trace/dal';
+import { createLogger } from '@/lib/utils/logger';
+
+const traceLogger = createLogger('db.agentd.trace');
 
 type AgentdTask = typeof agentTasks.$inferSelect & {
   roles?: string[];
@@ -82,6 +86,8 @@ type ToolActivityLogInput = {
   started_at?: string | Date;
   completedAt?: string | Date;
   completed_at?: string | Date;
+  idempotencyKey?: string;
+  idempotency_key?: string;
 };
 
 export type AgentdResourceScope = {
@@ -558,6 +564,8 @@ export async function writeReviewLogs(
     score?: number;
     decision: string;
     reason?: string;
+    idempotencyKey?: string;
+    idempotency_key?: string;
   }>,
 ) {
   const identityCache = new Map<
@@ -591,7 +599,64 @@ export async function writeReviewLogs(
     }),
   );
 
-  return db.insert(agentReviewLogs).values(values).returning();
+  const rows = await db.insert(agentReviewLogs).values(values).returning();
+  const canonicalWrites = logs.map(async (log, index) => {
+    const taskId = log.taskId ?? log.task_id ?? '';
+    const identity = await identityFor(taskId);
+    const timestamp = rows[index]?.createdAt ?? new Date();
+    const traceId =
+      log.traceId ?? log.trace_id ?? log.runId ?? log.run_id ?? null;
+    if (!traceId) return;
+    return ingestTraceSpan({
+      traceId,
+      spanId: `review:${taskId || 'unknown'}:${log.level}:${timestamp.getTime()}`,
+      parentSpanId: `model:${traceId}:0`,
+      source: 'agentd',
+      type: 'review',
+      status: normalizeDecision(log.decision),
+      startedAt: timestamp,
+      completedAt: timestamp,
+      durationMs: 0,
+      userId: identity.userId,
+      sessionId: null,
+      taskId: taskId || null,
+      workspaceId: null,
+      agentId: null,
+      output: {
+        decision: normalizeDecision(log.decision),
+        score: normalizeScore(log.score),
+        reason: log.reason ?? null,
+      },
+      metadata: {
+        level: log.level,
+        decision: normalizeDecision(log.decision),
+        score: normalizeScore(log.score),
+        reason: log.reason ?? null,
+        command: log.command,
+      },
+      idempotencyKey:
+        log.idempotencyKey ??
+        log.idempotency_key ??
+        `review:${taskId}:${log.level}:${timestamp.toISOString()}:${log.decision}`,
+    });
+  });
+  const outcomes = await Promise.allSettled(canonicalWrites);
+  for (const outcome of outcomes) {
+    if (outcome.status === 'fulfilled' && outcome.value?.duplicate) {
+      traceLogger.info('canonical review duplicate suppressed', {
+        traceId: outcome.value.record.traceId,
+      });
+    }
+    if (outcome.status === 'rejected') {
+      traceLogger.error('canonical review dual-write failed', {
+        error:
+          outcome.reason instanceof Error
+            ? outcome.reason.message
+            : String(outcome.reason),
+      });
+    }
+  }
+  return rows;
 }
 
 // === Tool Activity Logs ===
@@ -713,7 +778,71 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
     }),
   );
 
-  return db.insert(agentToolActivityLogs).values(values).returning();
+  const rows = await db
+    .insert(agentToolActivityLogs)
+    .values(values)
+    .returning();
+  const canonicalWrites = values.map(async (value, index) => {
+    if (!value.traceId) return;
+    const task = value.taskId ? await getTask(value.taskId) : null;
+    const original = logs[index];
+    const startedAt = value.startedAt;
+    const completedAt = value.completedAt;
+    return ingestTraceSpan({
+      traceId: value.traceId,
+      spanId: `tool:${value.toolCallId ?? value.toolName}:${startedAt.getTime()}`,
+      parentSpanId:
+        value.step !== null && value.step !== undefined
+          ? `model:${value.traceId}:${value.step}`
+          : null,
+      source: 'agentd',
+      type: 'tool',
+      status: value.success ? 'completed' : 'failed',
+      startedAt,
+      completedAt,
+      durationMs: value.durationMs,
+      userId: value.userId,
+      sessionId: value.sessionId,
+      taskId: value.taskId,
+      workspaceId: task?.workspaceId,
+      agentId: value.agentId,
+      input: value.arguments,
+      output: value.result,
+      error: value.error ? { message: value.error } : null,
+      metadata: {
+        toolName: value.toolName,
+        action: value.action,
+        target: value.target,
+        outputText: value.outputText,
+        model: value.model,
+        step: value.step,
+        toolCallId: value.toolCallId,
+        sandboxId: value.sandboxId,
+        source: value.source,
+      },
+      idempotencyKey:
+        original.idempotencyKey ??
+        original.idempotency_key ??
+        `tool:${value.taskId ?? value.sessionId ?? 'unknown'}:${value.toolCallId ?? value.toolName}:${startedAt.toISOString()}`,
+    });
+  });
+  const outcomes = await Promise.allSettled(canonicalWrites);
+  for (const outcome of outcomes) {
+    if (outcome.status === 'fulfilled' && outcome.value?.duplicate) {
+      traceLogger.info('canonical tool duplicate suppressed', {
+        traceId: outcome.value.record.traceId,
+      });
+    }
+    if (outcome.status === 'rejected') {
+      traceLogger.error('canonical tool dual-write failed', {
+        error:
+          outcome.reason instanceof Error
+            ? outcome.reason.message
+            : String(outcome.reason),
+      });
+    }
+  }
+  return rows;
 }
 
 // === L0 Rules ===

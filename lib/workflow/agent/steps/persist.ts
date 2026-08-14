@@ -15,6 +15,11 @@ import {
   updateSession,
   upsertPersistedMessage,
 } from '@/lib/core/db/chat';
+import {
+  ensureTraceRun,
+  finalizeTraceRun,
+  ingestTraceSpan,
+} from '@/lib/core/trace/dal';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
 import {
   getCurrentSessionSummary,
@@ -88,6 +93,21 @@ export async function persistStepDeltaAndUsageStep(input: {
     0,
     stepCompletedAt.getTime() - stepCreatedAt.getTime(),
   );
+  const session = await getSession(input.sessionId);
+  await ensureTraceRun({
+    traceId: runId,
+    spanId: `run:${runId}`,
+    source: 'workflow',
+    type: 'run',
+    status: 'running',
+    startedAt: stepCreatedAt,
+    userId: session?.userId,
+    sessionId: input.sessionId,
+    workspaceId: session?.workspaceId,
+    agentId: session?.metadata?.agentName as string | undefined,
+    metadata: { producer: 'workflow' },
+    idempotencyKey: `run:${runId}`,
+  });
   const rows: SerializedMessageForDB[] = [
     ...(input.persistedInstructions ?? [])
       .filter((row) => row.role !== 'user')
@@ -163,7 +183,6 @@ export async function persistStepDeltaAndUsageStep(input: {
       savedMessageIds.push(saved.uiMessageId ?? saved.id);
     }
   }
-  const session = await getSession(input.sessionId);
   const latestApproval =
     (session?.metadata?.latestApproval as
       | {
@@ -172,6 +191,37 @@ export async function persistStepDeltaAndUsageStep(input: {
           comment?: string | null;
         }
       | undefined) ?? undefined;
+
+  await ingestTraceSpan({
+    traceId: runId,
+    spanId: `model:${runId}:${input.step.stepNumber}`,
+    source: 'workflow',
+    type: 'model',
+    status:
+      input.step.finishReason === 'stop' || input.step.finishReason === 'length'
+        ? 'completed'
+        : input.step.finishReason.toLowerCase().includes('error')
+          ? 'failed'
+          : 'running',
+    startedAt: stepCreatedAt,
+    completedAt: stepCompletedAt,
+    durationMs: stepDurationMs,
+    userId: session?.userId,
+    sessionId: input.sessionId,
+    workspaceId: session?.workspaceId,
+    agentId: session?.metadata?.agentName as string | undefined,
+    output: {
+      text: input.step.text,
+      reasoningText: input.step.reasoningText,
+      finishReason: input.step.finishReason,
+      usage,
+    },
+    metadata: {
+      step: input.step.stepNumber,
+      model: session?.model,
+    },
+    idempotencyKey: `model:${runId}:${input.step.stepNumber}`,
+  });
 
   for (const toolCall of input.step.toolCalls) {
     const result = input.step.toolResults.find(
@@ -221,6 +271,32 @@ export async function persistStepDeltaAndUsageStep(input: {
         }),
       ),
     );
+
+    await ingestTraceSpan({
+      traceId: runId,
+      spanId: `tool:${runId}:${toolCall.toolCallId}`,
+      parentSpanId: `model:${runId}:${input.step.stepNumber}`,
+      source: 'workflow',
+      type: 'tool',
+      status: deniedOutput ? 'failed' : result ? 'completed' : 'running',
+      startedAt: stepCreatedAt,
+      completedAt: result ? stepCompletedAt : null,
+      durationMs: result ? stepDurationMs : null,
+      userId: session?.userId,
+      sessionId: input.sessionId,
+      workspaceId: session?.workspaceId,
+      agentId: session?.metadata?.agentName as string | undefined,
+      input: toolCall.input,
+      output: toolOutput,
+      error: deniedOutput ? { message: toolOutput } : null,
+      metadata: {
+        toolName: toolCall.toolName,
+        toolCallId: toolCall.toolCallId,
+        step: input.step.stepNumber,
+        finishReason: input.step.finishReason,
+      },
+      idempotencyKey: `tool:${runId}:${toolCall.toolCallId}`,
+    });
   }
 
   const totalTokens =
@@ -298,6 +374,26 @@ export async function initializeRunSessionStep(input: {
   'use step';
 
   const session = await getSession(input.sessionId);
+
+  const { workflowRunId } = getWorkflowMetadata();
+  if (workflowRunId) {
+    await ensureTraceRun({
+      traceId: workflowRunId,
+      spanId: `run:${workflowRunId}`,
+      source: input.source.type,
+      type: 'run',
+      status: 'running',
+      userId:
+        'userId' in input.source
+          ? (input.source.userId ?? session?.userId)
+          : session?.userId,
+      sessionId: input.sessionId,
+      workspaceId: session?.workspaceId,
+      agentId: session?.metadata?.agentName as string | undefined,
+      input: { model: input.modelId },
+      idempotencyKey: `run:${workflowRunId}`,
+    });
+  }
 
   await updateSession(input.sessionId, {
     model: input.modelId,
@@ -396,7 +492,7 @@ export async function compactAndPersistSummaryStep(input: {
 export async function finalizeRunStep(input: {
   sessionId: string;
   runId: string;
-  status: 'completed' | 'stopped' | 'error';
+  status: 'completed' | 'stopped' | 'timeout' | 'error';
   error?: string;
 }) {
   'use step';
@@ -418,7 +514,10 @@ export async function finalizeRunStep(input: {
 
   await updateSession(input.sessionId, {
     workflowRunId: null,
-    status: input.status === 'error' ? 'error' : input.status,
+    status:
+      input.status === 'error' || input.status === 'timeout'
+        ? 'error'
+        : input.status,
   });
   await patchWorkflowRuntime(input.sessionId, {
     phase:
@@ -430,6 +529,19 @@ export async function finalizeRunStep(input: {
     lastRunId: input.runId,
     stoppedAt: nowIso(),
     lastError: input.error ?? null,
+  });
+
+  await finalizeTraceRun({
+    traceId: input.runId,
+    status:
+      input.status === 'completed'
+        ? 'completed'
+        : input.status === 'error'
+          ? 'failed'
+          : input.status === 'timeout'
+            ? 'timeout'
+            : 'cancelled',
+    error: input.error ? { message: input.error } : undefined,
   });
 
   if (input.error) {

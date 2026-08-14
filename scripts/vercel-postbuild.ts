@@ -69,6 +69,9 @@ async function main() {
   );
   await runCommand('npx', ['tsx', 'scripts/migrate-workspaces.ts']);
 
+  console.log('[postbuild] backfilling canonical Trace storage');
+  await runCommand('npx', ['tsx', 'scripts/backfill-traces.ts']);
+
   console.log('[postbuild] database schema is up to date');
 }
 

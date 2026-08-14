@@ -38,13 +38,14 @@ type ReviewResult struct {
 // ReviewLog creates a ReviewLog from the review result.
 func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason string) clawless.ReviewLog {
 	return clawless.ReviewLog{
-		TaskID:   r.TaskID,
-		RunID:    r.RunID,
-		Command:  r.Command,
-		Level:    level,
-		Score:    score,
-		Decision: decision,
-		Reason:   reason,
+		TaskID:         r.TaskID,
+		RunID:          r.RunID,
+		Command:        r.Command,
+		Level:          level,
+		Score:          score,
+		Decision:       decision,
+		Reason:         reason,
+		IdempotencyKey: fmt.Sprintf("review:%s:%s:%s:%s", r.TaskID, level, decision, r.Command),
 	}
 }
 

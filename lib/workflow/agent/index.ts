@@ -918,11 +918,17 @@ export async function chatWorkflow(
 
       return result.messages;
     } catch (error) {
+      const errorText = error instanceof Error ? error.message : String(error);
+      const terminalStatus = /timeout/i.test(errorText)
+        ? ('timeout' as const)
+        : /cancel/i.test(errorText)
+          ? ('stopped' as const)
+          : ('error' as const);
       await finalizeRunStep({
         sessionId,
         runId,
-        status: 'error',
-        error: error instanceof Error ? error.message : String(error),
+        status: terminalStatus,
+        error: errorText,
       });
 
       try {

@@ -103,6 +103,7 @@
     "db:migrate": "tsx scripts/self-host-migrate.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "db:cleanup-traces": "tsx scripts/cleanup-traces.ts",
     "deploy": "npx vercel@latest --prod",
     "dev": "next dev",
     "format": "biome format . --write",

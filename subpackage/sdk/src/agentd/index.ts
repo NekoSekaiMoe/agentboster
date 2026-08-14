@@ -18,3 +18,4 @@ export * from './sandbox.js';
 export * from './security.js';
 export * from './node.js';
 export * from './paths.js';
+export * from './traces.js';

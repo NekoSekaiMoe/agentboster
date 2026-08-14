@@ -271,6 +271,15 @@ func stampReviewLogs(logs []clawless.ReviewLog, agentCtx *AgentContext) {
 		if logs[i].RunID == "" {
 			logs[i].RunID = agentCtx.RunID
 		}
+		if logs[i].IdempotencyKey == "" {
+			logs[i].IdempotencyKey = fmt.Sprintf(
+				"review:%s:%s:%s:%s",
+				logs[i].TaskID,
+				logs[i].Level,
+				logs[i].Decision,
+				logs[i].Command,
+			)
+		}
 		if logs[i].UserID == "" {
 			logs[i].UserID = agentCtx.UserID
 		}

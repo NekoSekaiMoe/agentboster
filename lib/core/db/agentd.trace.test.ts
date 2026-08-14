@@ -60,6 +60,60 @@ const DDL = [
     "completed_at" timestamptz,
     "created_at" timestamptz DEFAULT now() NOT NULL
   )`,
+  `CREATE TABLE "trace_runs" (
+    "trace_id" text PRIMARY KEY,
+    "span_id" text NOT NULL,
+    "parent_span_id" text,
+    "sequence" bigint DEFAULT 0 NOT NULL,
+    "source" text NOT NULL,
+    "status" text DEFAULT 'pending' NOT NULL,
+    "started_at" timestamptz DEFAULT now() NOT NULL,
+    "completed_at" timestamptz,
+    "duration_ms" integer,
+    "user_id" text,
+    "session_id" uuid,
+    "task_id" uuid,
+    "workspace_id" uuid,
+    "node_id" text,
+    "agent_id" text,
+    "input" jsonb,
+    "output" jsonb,
+    "error" jsonb,
+    "metadata" jsonb,
+    "idempotency_key" text NOT NULL,
+    "next_sequence" bigint DEFAULT 0 NOT NULL,
+    "created_at" timestamptz DEFAULT now() NOT NULL,
+    "updated_at" timestamptz DEFAULT now() NOT NULL,
+    UNIQUE ("trace_id", "idempotency_key")
+  )`,
+  `CREATE TABLE "trace_spans" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    "trace_id" text NOT NULL,
+    "span_id" text NOT NULL,
+    "parent_span_id" text,
+    "sequence" bigint NOT NULL,
+    "source" text NOT NULL,
+    "type" text NOT NULL,
+    "status" text DEFAULT 'pending' NOT NULL,
+    "started_at" timestamptz DEFAULT now() NOT NULL,
+    "completed_at" timestamptz,
+    "duration_ms" integer,
+    "user_id" text,
+    "session_id" uuid,
+    "task_id" uuid,
+    "workspace_id" uuid,
+    "node_id" text,
+    "agent_id" text,
+    "input" jsonb,
+    "output" jsonb,
+    "error" jsonb,
+    "metadata" jsonb,
+    "idempotency_key" text NOT NULL,
+    "created_at" timestamptz DEFAULT now() NOT NULL,
+    "updated_at" timestamptz DEFAULT now() NOT NULL,
+    UNIQUE ("trace_id", "span_id"),
+    UNIQUE ("trace_id", "idempotency_key")
+  )`,
 ];
 
 const harness = setupPgLiteTestDb(DDL);
@@ -86,6 +140,8 @@ describe('agentd trace propagation', () => {
       'agent_tool_activity_logs',
       'agent_review_logs',
       'agent_tasks',
+      'trace_spans',
+      'trace_runs',
       'users',
       'sessions',
     ]);
@@ -141,5 +197,25 @@ describe('agentd trace propagation', () => {
       { trace_id: 'run-web-1', user_id: 'user-1' },
     ]);
     expect(reviewRows).toEqual([{ trace_id: 'run-web-1', user_id: 'user-1' }]);
+
+    const canonicalRows = (
+      await harness.db.execute(
+        sql`SELECT "type", "trace_id", "user_id", "idempotency_key"
+            FROM "trace_spans" ORDER BY "type"`,
+      )
+    ).rows as Array<{
+      type: string;
+      trace_id: string;
+      user_id: string;
+      idempotency_key: string;
+    }>;
+    expect(canonicalRows).toHaveLength(2);
+    expect(canonicalRows.map((row) => row.type)).toEqual(['review', 'tool']);
+    expect(canonicalRows.every((row) => row.trace_id === 'run-web-1')).toBe(
+      true,
+    );
+    expect(new Set(canonicalRows.map((row) => row.idempotency_key)).size).toBe(
+      2,
+    );
   });
 });

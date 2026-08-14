@@ -117,16 +117,19 @@ type KeyFact struct {
 
 // ReviewLog represents a security review record.
 type ReviewLog struct {
-	TaskID    string    `json:"task_id"`
-	RunID     string    `json:"run_id,omitempty"`
-	UserID    string    `json:"user_id,omitempty"`
-	Roles     []string  `json:"roles,omitempty"`
-	Command   string    `json:"command"`
-	Level     string    `json:"level"`
-	Score     float64   `json:"score"`
-	Decision  string    `json:"decision"`
-	Reason    string    `json:"reason"`
-	Timestamp time.Time `json:"timestamp"`
+	TaskID   string   `json:"task_id"`
+	RunID    string   `json:"run_id,omitempty"`
+	UserID   string   `json:"user_id,omitempty"`
+	Roles    []string `json:"roles,omitempty"`
+	Command  string   `json:"command"`
+	Level    string   `json:"level"`
+	Score    float64  `json:"score"`
+	Decision string   `json:"decision"`
+	Reason   string   `json:"reason"`
+	// IdempotencyKey is reused when the callback is retried. The Web receiver
+	// enforces uniqueness per trace and record kind.
+	IdempotencyKey string    `json:"idempotency_key,omitempty"`
+	Timestamp      time.Time `json:"timestamp"`
 }
 
 // ToolActivityLog records a model-requested tool call and its full result.
@@ -153,6 +156,8 @@ type ToolActivityLog struct {
 	DurationMs  int64     `json:"duration_ms,omitempty"`
 	StartedAt   time.Time `json:"started_at"`
 	CompletedAt time.Time `json:"completed_at,omitempty"`
+	// IdempotencyKey is reused when the callback is retried.
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
 // Memory represents an agent memory entry.

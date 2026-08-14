@@ -82,6 +82,9 @@ async function main() {
   );
   await runCommand('npx', ['tsx', 'scripts/migrate-workspaces.ts']);
 
+  console.log('[self-host-migrate] backfilling canonical Trace storage');
+  await runCommand('npx', ['tsx', 'scripts/backfill-traces.ts']);
+
   console.log('[self-host-migrate] database schema is up to date');
 }
 

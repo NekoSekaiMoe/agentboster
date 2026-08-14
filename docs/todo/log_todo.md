@@ -2,7 +2,8 @@
 
 ## Status
 
-Deferred until `feat/unified-trace` has been reviewed, fixed, and merged.
+Implementation in progress on `main` after `feat/unified-trace` was reviewed,
+fixed, and merged.
 
 The current branch unifies Trace IDs, query APIs, and the product UI while
 preserving the existing model, tool activity, and security review storage.
