@@ -48,6 +48,11 @@ export type TranslationKey = keyof typeof enUS;
 
 export type TranslationValues = Record<string, number | string>;
 
+export interface PluralTranslationKeys {
+  one: TranslationKey;
+  other: TranslationKey;
+}
+
 export function isLocale(value: string): value is Locale {
   return (locales as readonly string[]).includes(value);
 }
@@ -127,4 +132,15 @@ export function translate(
     const value = values[token];
     return value === undefined ? match : String(value);
   });
+}
+
+export function translatePlural(
+  locale: Locale,
+  keys: PluralTranslationKeys,
+  count: number,
+  values?: TranslationValues,
+): string {
+  const category = new Intl.PluralRules(locale).select(count);
+  const key = category === 'one' ? keys.one : keys.other;
+  return translate(locale, key, { ...values, count });
 }

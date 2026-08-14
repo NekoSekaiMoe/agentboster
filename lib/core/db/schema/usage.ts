@@ -15,9 +15,9 @@ import {
  *
  * Ported from Multica migration 032 + the cost_usd_ticks addition (213).
  * One row per distinct (taskId, provider, model) combination — a multi-step
- * task that calls two models produces two rows. The UNIQUE constraint makes
- * upserting idempotent: a re-reported usage for the same key adds rather
- * than duplicates (callers read-then-write via the DAL helper).
+ * task that calls two models produces two rows. The UNIQUE constraint keeps
+ * one aggregate row per key, but the additive upsert is not retry-idempotent:
+ * callers must deduplicate stable usage event IDs before incrementing it.
  *
  * `costUsdTicks` is the provider-reported authoritative cost in 1e-10 USD
  * ticks (an integer to avoid float drift). NULL when the provider reports
@@ -83,9 +83,10 @@ export const taskUsage = pgTable(
  * Per-node, per-day, per-(provider, model) token usage rollup.
  *
  * Ported from Multica migration 013. One row per distinct
- * (nodeId, date, provider, model). The UNIQUE constraint makes the
- * upsert idempotent: the same-day same-key report increments the row
- * instead of creating a duplicate. Date is stored as TEXT in ISO format
+ * (nodeId, date, provider, model). The UNIQUE constraint keeps one aggregate
+ * row per bucket; duplicate reports still increment it and therefore require
+ * event-level deduplication before this rollup is updated. Date is stored as
+ * TEXT in ISO format
  * (`YYYY-MM-DD`) — Drizzle's `date` mode matches.
  *
  * Use this for daily spend dashboards and per-node capacity planning.

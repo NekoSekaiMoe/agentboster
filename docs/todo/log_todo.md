@@ -21,12 +21,18 @@ Introduce a normalized Trace model with explicit causality:
 Every record must use a common envelope:
 
 - `trace_id`, `span_id`, and nullable `parent_span_id`.
+- A durable `sequence` allocated monotonically within each Trace (or an
+  equivalent total-order key). Concurrent sibling spans must sort by this key,
+  with the stable span/event ID as the final tie-breaker; timestamps remain
+  descriptive fields and must not be the only ordering mechanism.
 - Stable source and event/span type strings.
 - Status, start time, completion time, and duration.
 - User, session, task, workspace, node, and agent identity where available.
 - Structured input, output, error, and metadata payloads.
-- An idempotency key so retries and duplicate agentd callbacks cannot create
-  duplicate spans or events.
+- An idempotency key that the producer reuses across retries. Enforce
+  storage-level uniqueness for runs, spans, and events using the record kind,
+  Trace/Span identifiers, and idempotency key; the ingestion DAL must use an
+  atomic insert-on-conflict path so duplicate callbacks retain one record.
 
 Do not implement this as one wide table or one opaque JSON document. Common
 query fields belong in typed columns; source-specific details belong in
@@ -52,8 +58,14 @@ structured payload columns.
   the canonical tables.
 - Backfill records that can be correlated safely. Mark uncorrelatable history
   explicitly instead of inventing Trace IDs.
-- Dual-write during a bounded compatibility window so older agentd versions
-  and rollback remain supported.
+- Deploy the Web receiver first. During a bounded compatibility window it must
+  accept both the legacy callback shape and the canonical envelope, normalize
+  both through an explicit protocol adapter, and dual-write old/new storage.
+- Upgrade agentd only after the compatible Web receiver is live. Stop
+  dual-write after all supported nodes meet the negotiated minimum protocol
+  version and duplicate/divergence metrics remain clean for the agreed window.
+- Rollback must keep both callback shapes accepted and resume legacy writes;
+  document the version-negotiation response and the exact rollback order.
 - Record metrics or logs for dual-write divergence and duplicate suppression.
 - Bump the agentd version when the callback contract changes.
 - Run the matching SDK drift generators for Web, Workflow, and agentd shapes.

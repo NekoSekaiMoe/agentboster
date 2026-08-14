@@ -15,7 +15,9 @@ import {
   localeLabels,
   locales,
   normalizeLocale,
+  type PluralTranslationKeys,
   translate,
+  translatePlural,
   type TranslationKey,
   type TranslationValues,
 } from '@/lib/i18n';
@@ -28,6 +30,11 @@ type I18nContextValue = {
   locales: typeof locales;
   setLocale: (locale: Locale) => void;
   t: (key: TranslationKey, values?: TranslationValues) => string;
+  tp: (
+    keys: PluralTranslationKeys,
+    count: number,
+    values?: TranslationValues,
+  ) => string;
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -87,6 +94,11 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       translate(locale, key, values),
     [locale],
   );
+  const tp = useCallback(
+    (keys: PluralTranslationKeys, count: number, values?: TranslationValues) =>
+      translatePlural(locale, keys, count, values),
+    [locale],
+  );
 
   const value = useMemo<I18nContextValue>(
     () => ({
@@ -95,8 +107,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       locales,
       setLocale,
       t,
+      tp,
     }),
-    [locale, setLocale, t],
+    [locale, setLocale, t, tp],
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

@@ -34,9 +34,29 @@ import type {
   TraceStatus,
   TraceSummary,
 } from '@/lib/core/trace/aggregate';
-import type { TranslationKey } from '@/lib/i18n';
+import type { PluralTranslationKeys, TranslationKey } from '@/lib/i18n';
 
 type Translate = ReturnType<typeof useI18n>['t'];
+type TranslatePlural = ReturnType<typeof useI18n>['tp'];
+
+const traceCountKeys = {
+  events: {
+    one: 'config.trace.eventsOrdered.one',
+    other: 'config.trace.eventsOrdered.other',
+  },
+  failures: {
+    one: 'config.trace.failureCount.one',
+    other: 'config.trace.failureCount.other',
+  },
+  models: {
+    one: 'config.trace.modelCount.one',
+    other: 'config.trace.modelCount.other',
+  },
+  tools: {
+    one: 'config.trace.toolCount.one',
+    other: 'config.trace.toolCount.other',
+  },
+} satisfies Record<string, PluralTranslationKeys>;
 
 const statusClass: Record<TraceStatus, string> = {
   running:
@@ -202,11 +222,13 @@ function TraceListRow({
   selected,
   onSelect,
   t,
+  tp,
 }: {
   trace: TraceSummary;
   selected: boolean;
   onSelect: () => void;
   t: Translate;
+  tp: TranslatePlural;
 }) {
   return (
     <button
@@ -228,13 +250,9 @@ function TraceListRow({
         <span className="shrink-0">{formatDuration(trace.durationMs)}</span>
       </div>
       <div className="mt-1 flex gap-3 text-[11px] text-muted-foreground">
-        <span>
-          {t('config.trace.modelCount', { count: trace.modelStepCount })}
-        </span>
-        <span>{t('config.trace.toolCount', { count: trace.toolCount })}</span>
-        <span>
-          {t('config.trace.failureCount', { count: trace.failureCount })}
-        </span>
+        <span>{tp(traceCountKeys.models, trace.modelStepCount)}</span>
+        <span>{tp(traceCountKeys.tools, trace.toolCount)}</span>
+        <span>{tp(traceCountKeys.failures, trace.failureCount)}</span>
       </div>
     </button>
   );
@@ -296,11 +314,13 @@ function TraceDetailPanel({
   isLoading,
   error,
   t,
+  tp,
 }: {
   detail: TraceDetail | null | undefined;
   isLoading: boolean;
   error: Error | null;
   t: Translate;
+  tp: TranslatePlural;
 }) {
   if (isLoading) {
     return (
@@ -382,7 +402,7 @@ function TraceDetailPanel({
         )}
       </div>
       <div className="border-b bg-muted/20 px-4 py-2 text-muted-foreground text-xs">
-        {t('config.trace.eventsOrdered', { count: events.length })}
+        {tp(traceCountKeys.events, events.length)}
       </div>
       {events.length === 0 ? (
         <div className="flex min-h-[360px] items-center justify-center p-6 text-muted-foreground text-sm">
@@ -400,7 +420,7 @@ function TraceDetailPanel({
 }
 
 export function TraceExplorer() {
-  const { t } = useI18n();
+  const { t, tp } = useI18n();
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
@@ -491,6 +511,7 @@ export function TraceExplorer() {
                   selected={trace.traceId === activeTraceId}
                   trace={trace}
                   t={t}
+                  tp={tp}
                 />
               ))
             )}
@@ -502,6 +523,7 @@ export function TraceExplorer() {
             }
             isLoading={detailQuery.isLoading}
             t={t}
+            tp={tp}
           />
         </div>
       </section>

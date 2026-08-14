@@ -120,6 +120,7 @@ export const messages = pgTable(
       ).on(table.sessionId, table.uiMessageId),
       traceRunCreatedIdx: index('messages_trace_run_created_idx')
         .on(traceRunId, table.createdAt)
+        .concurrently()
         .where(sql`${traceRunId} IS NOT NULL`),
     };
   },

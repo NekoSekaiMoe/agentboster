@@ -11,8 +11,8 @@ import { nodeUsageDaily, taskUsage } from './schema';
  *     UNIQUE (taskId, provider, model) index makes upserts add rather
  *     than duplicate.
  *   - per-node-per-day (nodeUsageDaily): rollup for spend dashboards;
- *     UNIQUE (nodeId, date, provider, model) makes the increment
- *     idempotent across same-day same-key reports.
+ *     UNIQUE (nodeId, date, provider, model) keeps one aggregate row, but
+ *     callers must deduplicate retries before applying the increment.
  *
  * `costUsdTicks` is provider-reported authoritative cost in 1e-10 USD
  * ticks; NULL means "no authoritative figure, estimate from rate table".

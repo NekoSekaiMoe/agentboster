@@ -4503,7 +4503,7 @@
           ],
           "isUnique": false,
           "where": "(\"messages\".\"payload\"->'metadata'->>'runId') IS NOT NULL",
-          "concurrently": false,
+          "concurrently": true,
           "method": "btree",
           "with": {}
         }
