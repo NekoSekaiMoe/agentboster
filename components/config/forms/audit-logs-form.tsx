@@ -31,10 +31,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TraceExplorer } from './trace-explorer';
 
 interface ReviewLog {
   id: string;
   taskId: string;
+  traceId: string | null;
   sessionId: string | null;
   command: string;
   level: 'L0' | 'L1' | 'L2';
@@ -59,6 +61,7 @@ interface ToolActivityLog {
   id: string;
   taskId: string | null;
   sessionId: string | null;
+  traceId: string | null;
   agentId: string;
   userId: string | null;
   sandboxId: string | null;
@@ -237,6 +240,8 @@ export function AuditLogsForm() {
           Review security audit logs for all agent operations.
         </p>
       </div>
+
+      <TraceExplorer />
 
       <Card>
         <CardHeader>
@@ -517,6 +522,13 @@ export function AuditLogsForm() {
                   value={selectedLog.taskId}
                   mono
                 />
+                {selectedLog.traceId && (
+                  <DetailRow
+                    label="Trace ID"
+                    value={selectedLog.traceId}
+                    mono
+                  />
+                )}
                 {selectedLog.agentId && (
                   <DetailRow
                     label={t('form.label.agent')}
@@ -531,7 +543,6 @@ export function AuditLogsForm() {
                     mono
                   />
                 )}
-
                 <div>
                   <Label className="font-medium text-muted-foreground text-xs">
                     Command
@@ -952,6 +963,13 @@ function ToolActivitySection() {
                   <DetailRow
                     label={t('form.label.session')}
                     value={selectedLog.sessionId}
+                    mono
+                  />
+                )}
+                {selectedLog.traceId && (
+                  <DetailRow
+                    label="Trace ID"
+                    value={selectedLog.traceId}
                     mono
                   />
                 )}

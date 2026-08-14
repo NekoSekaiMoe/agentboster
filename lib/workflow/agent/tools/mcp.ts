@@ -279,6 +279,7 @@ export async function getMCPTools(
   baseName = 'MCP',
   context?: {
     sessionId?: string;
+    runId?: string;
     agentName?: string;
   },
   appConfig?: import('@/types/config').AppConfig,
@@ -293,7 +294,7 @@ export async function getMCPTools(
   const secCtx = appConfig
     ? {
         sessionId: context?.sessionId ?? '',
-        runId: context?.sessionId ?? '',
+        runId: context?.runId ?? context?.sessionId ?? '',
         agentName: context?.agentName ?? '',
         appConfig,
       }
@@ -336,6 +337,7 @@ export async function getMCPTools(
         toolName: descriptor.toolName,
         serverName: descriptor.serverName,
         sessionId: context?.sessionId,
+        runId: context?.runId,
         agentName: context?.agentName,
       },
       secCtx,

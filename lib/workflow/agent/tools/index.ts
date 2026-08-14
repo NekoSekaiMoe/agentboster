@@ -117,6 +117,7 @@ export async function buildAgentTools(
     'MCP',
     {
       sessionId,
+      runId,
       agentName,
     },
     config,

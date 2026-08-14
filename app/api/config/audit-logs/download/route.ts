@@ -53,6 +53,7 @@ export async function GET(request: Request) {
       .select({
         id: agentReviewLogs.id,
         taskId: agentReviewLogs.taskId,
+        traceId: agentReviewLogs.traceId,
         command: agentReviewLogs.command,
         level: agentReviewLogs.level,
         score: agentReviewLogs.score,
@@ -68,12 +69,12 @@ export async function GET(request: Request) {
       .limit(10000);
 
     const csvHeader =
-      'Timestamp,Level,Decision,Score,Command,Reason,Task ID,Agent ID';
+      'Timestamp,Level,Decision,Score,Command,Reason,Task ID,Trace ID,Agent ID';
     const csvRows = logs.map((log) => {
       const timestamp = new Date(log.createdAt).toISOString();
       const command = `"${log.command.replace(/"/g, '""')}"`;
       const reason = log.reason ? `"${log.reason.replace(/"/g, '""')}"` : '';
-      return `${timestamp},${log.level},${log.decision},${log.score || ''},${command},${reason},${log.taskId},${log.agentId || ''}`;
+      return `${timestamp},${log.level},${log.decision},${log.score || ''},${command},${reason},${log.taskId},${log.traceId || ''},${log.agentId || ''}`;
     });
 
     const csv = [csvHeader, ...csvRows].join('\n');

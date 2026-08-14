@@ -45,6 +45,10 @@ type ToolActivityAction =
   (typeof agentToolActivityLogs.action.enumValues)[number];
 
 type ToolActivityLogInput = {
+  traceId?: string;
+  trace_id?: string;
+  runId?: string;
+  run_id?: string;
   taskId?: string;
   task_id?: string;
   sessionId?: string;
@@ -543,6 +547,10 @@ export async function listTasks(
 
 export async function writeReviewLogs(
   logs: Array<{
+    traceId?: string;
+    trace_id?: string;
+    runId?: string;
+    run_id?: string;
     taskId?: string;
     task_id?: string;
     command: string;
@@ -571,6 +579,7 @@ export async function writeReviewLogs(
       const identity = await identityFor(taskId);
       return {
         taskId,
+        traceId: log.traceId ?? log.trace_id ?? log.runId ?? log.run_id ?? null,
         userId: identity.userId,
         roles: identity.roles,
         command: log.command,
@@ -675,6 +684,9 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
       return {
         taskId: normalizeNullableText(log.taskId ?? log.task_id),
         sessionId: normalizeNullableText(log.sessionId ?? log.session_id),
+        traceId: normalizeNullableText(
+          log.traceId ?? log.trace_id ?? log.runId ?? log.run_id,
+        ),
         agentId: log.agentId ?? log.agent_id ?? 'default',
         userId: identity.userId,
         roles: identity.roles,

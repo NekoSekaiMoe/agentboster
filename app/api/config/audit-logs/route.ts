@@ -53,6 +53,7 @@ export async function GET(request: Request) {
       .select({
         id: agentReviewLogs.id,
         taskId: agentReviewLogs.taskId,
+        traceId: agentReviewLogs.traceId,
         userId: agentReviewLogs.userId,
         roles: agentReviewLogs.roles,
         command: agentReviewLogs.command,

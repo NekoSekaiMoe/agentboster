@@ -115,14 +115,35 @@ func writeToolActivityLog(
 		result = &ToolResult{Success: false, Error: "tool returned nil result"}
 	}
 
+	log := buildToolActivityLog(agentCtx, model, step, call, result, outputText, startedAt, completedAt)
+	if err := client.WriteToolActivityLogs(ctx, []clawless.ToolActivityLog{log}); err != nil {
+		slog.Warn("failed to write tool activity log",
+			"tool", call.Name,
+			"session", agentCtx.SessionID,
+			"error", err,
+		)
+	}
+}
+
+func buildToolActivityLog(
+	agentCtx *AgentContext,
+	model string,
+	step int,
+	call *ToolCall,
+	result *ToolResult,
+	outputText string,
+	startedAt time.Time,
+	completedAt time.Time,
+) clawless.ToolActivityLog {
 	action, target, arguments := classifyToolActivity(call.Name, call.Arguments)
 	// Snapshot SandboxID under the per-session state lock (nil-safe for
 	// detached contexts and for ExecuteTool's execCtx copy, which shares
 	// the same lock pointer): sandbox_destroy clears it concurrently.
 	sandboxID := agentCtx.SnapshotSandboxID()
-	log := clawless.ToolActivityLog{
+	return clawless.ToolActivityLog{
 		TaskID:      agentCtx.TaskID,
 		SessionID:   agentCtx.SessionID,
+		RunID:       agentCtx.RunID,
 		AgentID:     agentCtx.AgentID,
 		UserID:      agentCtx.UserID,
 		Roles:       agentCtx.Roles,
@@ -142,14 +163,6 @@ func writeToolActivityLog(
 		DurationMs:  completedAt.Sub(startedAt).Milliseconds(),
 		StartedAt:   startedAt,
 		CompletedAt: completedAt,
-	}
-
-	if err := client.WriteToolActivityLogs(ctx, []clawless.ToolActivityLog{log}); err != nil {
-		slog.Warn("failed to write tool activity log",
-			"tool", call.Name,
-			"session", agentCtx.SessionID,
-			"error", err,
-		)
 	}
 }
 

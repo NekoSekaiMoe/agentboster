@@ -4,6 +4,7 @@ package agent
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -64,6 +65,41 @@ func TestAgentContextLog_DefaultWhenRunIDEmpty(t *testing.T) {
 	var nilCtx *AgentContext
 	if nilCtx.Log() != slog.Default() {
 		t.Fatalf("nil context must fall back to slog.Default()")
+	}
+}
+
+func TestTraceCallbacksCarryRunID(t *testing.T) {
+	startedAt := time.Unix(1_700_000_000, 0)
+	completedAt := startedAt.Add(250 * time.Millisecond)
+	ctx := &AgentContext{
+		TaskID:    "00000000-0000-0000-0000-000000000001",
+		SessionID: "sess-1",
+		AgentID:   "agent-1",
+		UserID:    "user-1",
+		Roles:     []string{"admin"},
+		RunID:     "run-callback-123",
+	}
+	activity := buildToolActivityLog(
+		ctx,
+		"model-1",
+		2,
+		&ToolCall{ID: "call-1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`)},
+		&ToolResult{Success: true, Data: "ok"},
+		"ok",
+		startedAt,
+		completedAt,
+	)
+	if activity.RunID != ctx.RunID {
+		t.Fatalf("tool activity RunID: want %q, got %q", ctx.RunID, activity.RunID)
+	}
+
+	reviews := []clawless.ReviewLog{{Command: "read README.md", Level: "L0", Decision: "allowed"}}
+	stampReviewLogs(reviews, ctx)
+	if reviews[0].RunID != ctx.RunID {
+		t.Fatalf("review RunID: want %q, got %q", ctx.RunID, reviews[0].RunID)
+	}
+	if reviews[0].TaskID != ctx.TaskID || reviews[0].UserID != ctx.UserID {
+		t.Fatalf("review identity not stamped: %+v", reviews[0])
 	}
 }
 

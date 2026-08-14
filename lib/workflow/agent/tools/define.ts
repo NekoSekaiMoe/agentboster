@@ -111,6 +111,7 @@ type ToolExecutionLogContext = {
   toolId: string;
   toolName: string;
   sessionId?: string;
+  runId?: string;
   agentName?: string;
   serverName?: string;
 };
@@ -267,6 +268,7 @@ function isAgentdBackedToolResult(value: unknown): boolean {
 
 async function writeWorkflowToolActivityLogStep(input: {
   sessionId: string;
+  traceId?: string;
   agentId: string;
   toolCallId?: string;
   toolName: string;
@@ -287,6 +289,7 @@ async function writeWorkflowToolActivityLogStep(input: {
   await writeToolActivityLogs([
     {
       sessionId: input.sessionId,
+      traceId: input.traceId,
       agentId: input.agentId,
       toolCallId: input.toolCallId,
       toolName: input.toolName,
@@ -335,6 +338,7 @@ async function writeWorkflowToolActivityLog(input: {
   try {
     await writeWorkflowToolActivityLogStep({
       sessionId: input.context.sessionId,
+      traceId: input.context.runId,
       agentId: input.context.agentName ?? 'default',
       toolCallId: input.toolCallId,
       toolName: `${input.context.toolId}.${input.context.toolName}`,
@@ -651,6 +655,7 @@ export function defineBuildInTool(config: {
                 toolId: id,
                 toolName,
                 sessionId: context.sessionId,
+                runId: context.runId,
                 agentName: context.agentName,
               },
               secCtx,

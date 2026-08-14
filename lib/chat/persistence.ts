@@ -216,9 +216,15 @@ function buildMessage(groupRows: PersistedMessageRecord[]): WorkflowUIMessage {
         | Record<string, unknown>
         | undefined;
       if (rowMeta) {
-        // runId is an internal marker used only by deserializePersistedMessages
-        // to coalesce steps; strip it so it never reaches the UI message.
-        const { runId: _drop, ...publicMeta } = rowMeta;
+        // Trace markers are internal persistence metadata. They drive
+        // cross-service correlation and timing but must not leak into the
+        // public chat message contract.
+        const {
+          runId: _dropRunId,
+          traceCompletedAt: _dropTraceCompletedAt,
+          traceDurationMs: _dropTraceDurationMs,
+          ...publicMeta
+        } = rowMeta;
         metadata = publicMeta as WorkflowUIMessage['metadata'];
       }
     }

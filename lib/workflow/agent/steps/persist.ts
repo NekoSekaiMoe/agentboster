@@ -76,12 +76,18 @@ export async function persistStepDeltaAndUsageStep(input: {
   step: StepResult<ToolSet>;
   persistedInstructions?: SerializedMessageForDB[];
   stepCreatedAt?: Date;
+  stepCompletedAt?: Date;
 }): Promise<TokenUsage> {
   'use step';
 
   const { workflowRunId: runId } = getWorkflowMetadata();
   const usage = toUsageRecord(input.step);
   const stepCreatedAt = input.stepCreatedAt ?? new Date();
+  const stepCompletedAt = input.stepCompletedAt ?? new Date();
+  const stepDurationMs = Math.max(
+    0,
+    stepCompletedAt.getTime() - stepCreatedAt.getTime(),
+  );
   const rows: SerializedMessageForDB[] = [
     ...(input.persistedInstructions ?? [])
       .filter((row) => row.role !== 'user')
@@ -122,7 +128,12 @@ export async function persistStepDeltaAndUsageStep(input: {
     ...row,
     payload: {
       ...row.payload,
-      metadata: { ...(row.payload.metadata ?? {}), runId },
+      metadata: {
+        ...(row.payload.metadata ?? {}),
+        runId,
+        traceCompletedAt: stepCompletedAt.toISOString(),
+        traceDurationMs: stepDurationMs,
+      },
     },
   });
 

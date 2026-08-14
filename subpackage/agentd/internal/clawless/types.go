@@ -61,8 +61,8 @@ type Session struct {
 // subsequent role="tool" message must reference via ToolCallID so the
 // provider can pair each tool result with its originating call.
 type ToolCall struct {
-	ID       string `json:"id"`
-	Type     string `json:"type,omitempty"`            // "function" (default)
+	ID       string           `json:"id"`
+	Type     string           `json:"type,omitempty"` // "function" (default)
 	Function ToolCallFunction `json:"function"`
 }
 
@@ -76,8 +76,8 @@ type ToolCallFunction struct {
 // Used by LLMProxyRequest.Tools so the upstream provider can perform
 // native tool calling instead of relying on prompt-based translation.
 type ToolDef struct {
-	Type     string             `json:"type"` // "function"
-	Function ToolDefFunction    `json:"function"`
+	Type     string          `json:"type"` // "function"
+	Function ToolDefFunction `json:"function"`
 }
 
 // ToolDefFunction is the function declaration of a tool.
@@ -101,12 +101,12 @@ type ToolDefFunction struct {
 // → tool-result pairing, which breaks multi-turn tool calling on any
 // provider that follows the OpenAI spec (OpenAI/Anthropic/Gemini).
 type Message struct {
-	Role       string      `json:"role"`
-	Content    string      `json:"content"`
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`  // role=assistant
-	ToolCallID string      `json:"tool_call_id,omitempty"` // role=tool
-	Name       string      `json:"name,omitempty"`         // optional tool name (role=tool)
-	Time       time.Time   `json:"time"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // role=assistant
+	ToolCallID string     `json:"tool_call_id,omitempty"` // role=tool
+	Name       string     `json:"name,omitempty"`         // optional tool name (role=tool)
+	Time       time.Time  `json:"time"`
 }
 
 // KeyFact represents a structured fact extracted from a session.
@@ -118,6 +118,7 @@ type KeyFact struct {
 // ReviewLog represents a security review record.
 type ReviewLog struct {
 	TaskID    string    `json:"task_id"`
+	RunID     string    `json:"run_id,omitempty"`
 	UserID    string    `json:"user_id,omitempty"`
 	Roles     []string  `json:"roles,omitempty"`
 	Command   string    `json:"command"`
@@ -132,6 +133,7 @@ type ReviewLog struct {
 type ToolActivityLog struct {
 	TaskID      string    `json:"task_id,omitempty"`
 	SessionID   string    `json:"session_id,omitempty"`
+	RunID       string    `json:"run_id,omitempty"`
 	AgentID     string    `json:"agent_id"`
 	UserID      string    `json:"user_id,omitempty"`
 	Roles       []string  `json:"roles,omitempty"`

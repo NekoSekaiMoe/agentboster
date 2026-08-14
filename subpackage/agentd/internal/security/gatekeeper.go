@@ -30,6 +30,7 @@ type ReviewResult struct {
 	L0Result *l0_rules.L0Result
 	L1Result *clawless.L1Result
 	TaskID   string
+	RunID    string
 	Command  string
 	Reason   string
 }
@@ -38,6 +39,7 @@ type ReviewResult struct {
 func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason string) clawless.ReviewLog {
 	return clawless.ReviewLog{
 		TaskID:   r.TaskID,
+		RunID:    r.RunID,
 		Command:  r.Command,
 		Level:    level,
 		Score:    score,
@@ -187,6 +189,7 @@ func maxFloat(a, b float64) float64 {
 func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSummary string) (*ReviewResult, []clawless.ReviewLog) {
 	result := &ReviewResult{
 		TaskID:  task.ID,
+		RunID:   task.RunID,
 		Command: task.Command,
 	}
 	logs := make([]clawless.ReviewLog, 0, 3)

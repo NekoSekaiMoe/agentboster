@@ -126,6 +126,7 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 		// Security validation: check LLM output for injection/leak patterns
 		if llmResp.Content != "" && l.gatekeeper != nil {
 			auditResult, auditLogs := l.gatekeeper.AuditOutput(ctx, llmResp.Content, l.agentCtx.SessionSummary)
+			stampReviewLogs(auditLogs, l.agentCtx)
 			if len(auditLogs) > 0 {
 				if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
 					log.Warn("failed to write output audit logs", "error", err)
@@ -232,6 +233,7 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 			Command:   fmt.Sprintf("tool=%s args=%s", call.Name, string(call.Arguments)),
 		}
 		auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)
+		stampReviewLogs(auditLogs, l.agentCtx)
 		if len(auditLogs) > 0 {
 			if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
 				l.agentCtx.Log().Warn("failed to write tool audit logs", "error", err)
@@ -251,6 +253,31 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 		toolResult = &ToolResult{Success: false, Error: err.Error()}
 	}
 	l.completeToolCall(ctx, call, toolResult, toolStartedAt)
+}
+
+func stampReviewLogs(logs []clawless.ReviewLog, agentCtx *AgentContext) {
+	if agentCtx == nil {
+		return
+	}
+
+	taskID := agentCtx.TaskID
+	if taskID == "" {
+		taskID = "00000000-0000-0000-0000-000000000000"
+	}
+	for i := range logs {
+		if logs[i].TaskID == "" {
+			logs[i].TaskID = taskID
+		}
+		if logs[i].RunID == "" {
+			logs[i].RunID = agentCtx.RunID
+		}
+		if logs[i].UserID == "" {
+			logs[i].UserID = agentCtx.UserID
+		}
+		if len(logs[i].Roles) == 0 {
+			logs[i].Roles = agentCtx.Roles
+		}
+	}
 }
 
 // LLMResponse represents the parsed LLM response.

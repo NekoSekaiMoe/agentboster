@@ -770,6 +770,7 @@ export async function chatWorkflow(
           }
 
           try {
+            const completedAt = new Date();
             await writeMessageMetadata({
               stepNumber: realStepNumber,
               createdAt: startedAt.toISOString(),
@@ -781,6 +782,7 @@ export async function chatWorkflow(
               step: { ...step, stepNumber: realStepNumber },
               persistedInstructions: pendingPersistedInstructions,
               stepCreatedAt: startedAt,
+              stepCompletedAt: completedAt,
             });
             logger.info('stream:step_finish', {
               sessionId,

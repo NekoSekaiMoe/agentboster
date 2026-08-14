@@ -123,32 +123,43 @@ export const agentTasks = pgTable(
   }),
 );
 
-export const agentReviewLogs = pgTable('agent_review_logs', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  taskId: uuid('task_id').notNull(),
-  userId: text('user_id'),
-  roles: text('roles').array(),
-  command: text('command').notNull(),
-  level: text('level', { enum: ['L0', 'L1', 'L2'] }).notNull(),
-  score: integer('score'),
-  decision: text('decision', {
-    enum: [
-      'allowed',
-      'allowed_with_warning',
-      'blocked',
-      'pending_confirm',
-      'pending_l2',
-      'pending_l2_critical',
-      'approved',
-      'rejected',
-      'expired',
-    ],
-  }).notNull(),
-  reason: text('reason'),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const agentReviewLogs = pgTable(
+  'agent_review_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    taskId: uuid('task_id').notNull(),
+    /** Workflow run id used to correlate this review with a Trace. */
+    traceId: text('trace_id'),
+    userId: text('user_id'),
+    roles: text('roles').array(),
+    command: text('command').notNull(),
+    level: text('level', { enum: ['L0', 'L1', 'L2'] }).notNull(),
+    score: integer('score'),
+    decision: text('decision', {
+      enum: [
+        'allowed',
+        'allowed_with_warning',
+        'blocked',
+        'pending_confirm',
+        'pending_l2',
+        'pending_l2_critical',
+        'approved',
+        'rejected',
+        'expired',
+      ],
+    }).notNull(),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    traceCreatedIdx: index('agent_review_logs_trace_created_idx').on(
+      table.traceId,
+      table.createdAt,
+    ),
+  }),
+);
 
 export const agentToolActivityLogs = pgTable(
   'agent_tool_activity_logs',
@@ -156,6 +167,8 @@ export const agentToolActivityLogs = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     taskId: uuid('task_id'),
     sessionId: uuid('session_id'),
+    /** Workflow run id used to correlate this activity with a Trace. */
+    traceId: text('trace_id'),
     agentId: text('agent_id').notNull(),
     userId: text('user_id'),
     roles: text('roles').array(),
@@ -185,6 +198,10 @@ export const agentToolActivityLogs = pgTable(
     taskIdx: index('agent_tool_activity_logs_task_idx').on(table.taskId),
     sessionIdx: index('agent_tool_activity_logs_session_idx').on(
       table.sessionId,
+    ),
+    traceCreatedIdx: index('agent_tool_activity_logs_trace_created_idx').on(
+      table.traceId,
+      table.createdAt,
     ),
     agentCreatedIdx: index('agent_tool_activity_logs_agent_created_idx').on(
       table.agentId,
