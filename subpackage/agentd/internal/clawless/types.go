@@ -129,8 +129,16 @@ type ReviewLog struct {
 	Reason    string   `json:"reason"`
 	// IdempotencyKey is reused when the callback is retried. The Web receiver
 	// enforces uniqueness per trace and record kind.
-	IdempotencyKey string    `json:"idempotency_key,omitempty"`
-	Timestamp      time.Time `json:"timestamp"`
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	// KeyCommandDigest is the SHA-256 digest of the RAW (untruncated)
+	// command/output that this record's idempotency key was derived from.
+	// The persisted Command copy is sanitized and capped at 256 bytes, so
+	// re-deriving a key from Command after a task-id swap would collapse
+	// distinct long outputs onto one key; consumers that must rebuild the
+	// key (loop.stampReviewLogs) re-derive it from this digest instead.
+	// Consumers MUST NOT mutate this field.
+	KeyCommandDigest string    `json:"key_command_digest,omitempty"`
+	Timestamp        time.Time `json:"timestamp"`
 }
 
 // ToolActivityLog records a model-requested tool call and its full result.

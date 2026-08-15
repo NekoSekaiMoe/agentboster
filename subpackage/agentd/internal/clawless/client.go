@@ -473,8 +473,29 @@ func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
 // stampReviewLogs re-stamping, and the dispatcher's security-alert path
 // so every producer derives identical keys for the same review.
 func BuildReviewIdempotencyKey(taskID, level, decision, command string) string {
+	key, _ := BuildReviewIdempotencyKeyAndDigest(taskID, level, decision, command)
+	return key
+}
+
+// BuildReviewIdempotencyKeyAndDigest is BuildReviewIdempotencyKey that also
+// returns the raw-output digest embedded in the key, so producers can pin it
+// on the ReviewLog (KeyCommandDigest) for later lossless re-derivation.
+func BuildReviewIdempotencyKeyAndDigest(taskID, level, decision, command string) (string, string) {
 	sum := sha256.Sum256([]byte(command))
-	return fmt.Sprintf("review:%s:%s:%s:%s", taskID, level, decision, hex.EncodeToString(sum[:16]))
+	digest := hex.EncodeToString(sum[:16])
+	return fmt.Sprintf("review:%s:%s:%s:%s", taskID, level, decision, digest), digest
+}
+
+// ReviewIdempotencyKeyFromDigest rebuilds a review idempotency key from the
+// SHA-256 digest of the raw command/output, substituting only the task id.
+// It must stay byte-identical to BuildReviewIdempotencyKey(taskID, level,
+// decision, command) with the original untruncated command — the digest is
+// pinned at ReviewLog-construction time precisely so later re-stamping
+// (e.g. loop.stampReviewLogs replacing a placeholder task id) does not
+// collapse distinct long outputs onto the same key by re-hashing the
+// 256-byte-truncated Command copy.
+func ReviewIdempotencyKeyFromDigest(taskID, level, decision, digest string) string {
+	return fmt.Sprintf("review:%s:%s:%s:%s", taskID, level, decision, digest)
 }
 
 func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
@@ -505,7 +526,7 @@ func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
 			// idempotencyKey already carries the "review:" prefix (either
 			// from the caller or BuildReviewIdempotencyKey) — prepending
 			// it again used to produce "review:review:..." span ids.
-			"span_id":         idempotencyKey,
+			"span_id": idempotencyKey,
 			// The parent span is not knowable from agentd (review logs are
 			// not tied to a specific model span); attach to the trace root.
 			"parent_span_id":  nil,

@@ -217,3 +217,53 @@ func TestLaunchSubagent_PropagatesRunID(t *testing.T) {
 		t.Fatalf("expected run_id on subagent lifecycle logs, got: %s", out)
 	}
 }
+
+// TestStampReviewLogs_KeyRebuildKeepsRawOutputDigest is the regression test
+// for the truncated-Command key-collapse bug: stampReviewLogs rebuilds the
+// idempotency key when the placeholder task id ("00000000-...") is
+// normalized to a real one. The rebuild must re-derive the key from the
+// pinned raw-output digest (KeyCommandDigest), NOT re-hash Command — Command
+// is sanitized/truncated to 256 bytes, so two distinct long outputs with an
+// identical prefix would otherwise collapse onto the same key and the
+// receiver's (trace_id, idempotency_key) dedup would silently drop the
+// second audit record.
+func TestStampReviewLogs_KeyRebuildKeepsRawOutputDigest(t *testing.T) {
+	longA := strings.Repeat("x", 400) + "A"
+	longB := strings.Repeat("x", 400) + "B" // identical 256-byte prefix, distinct raw output
+
+	// The gatekeeper derives key + digest from the RAW output (KeyCommand);
+	// the persisted Command copy is what sanitizeAuditCommand capped.
+	keyA, digestA := clawless.BuildReviewIdempotencyKeyAndDigest("00000000-0000-0000-0000-000000000000", "L0", "blocked", longA)
+	keyB, digestB := clawless.BuildReviewIdempotencyKeyAndDigest("00000000-0000-0000-0000-000000000000", "L0", "blocked", longB)
+	if digestA == digestB {
+		t.Fatalf("distinct raw outputs must have distinct digests")
+	}
+
+	logs := []clawless.ReviewLog{
+		{Command: longA[:256], Level: "L0", Decision: "blocked", IdempotencyKey: keyA, KeyCommandDigest: digestA},
+		{Command: longB[:256], Level: "L0", Decision: "blocked", IdempotencyKey: keyB, KeyCommandDigest: digestB},
+	}
+	ctx := &AgentContext{
+		TaskID:    "11111111-1111-1111-1111-111111111111",
+		SessionID: "sess-1",
+		RunID:     "run-key-1",
+	}
+	stampReviewLogs(logs, ctx)
+
+	if logs[0].IdempotencyKey == logs[1].IdempotencyKey {
+		t.Fatalf("key collapse after task-id normalization: both=%q", logs[0].IdempotencyKey)
+	}
+	// The rebuilt key must equal what the gatekeeper would have produced
+	// with the REAL task id and the raw output.
+	wantA, _ := clawless.BuildReviewIdempotencyKeyAndDigest(ctx.TaskID, "L0", "blocked", longA)
+	wantB, _ := clawless.BuildReviewIdempotencyKeyAndDigest(ctx.TaskID, "L0", "blocked", longB)
+	if logs[0].IdempotencyKey != wantA || logs[1].IdempotencyKey != wantB {
+		t.Fatalf("rebuilt keys diverge from gatekeeper derivation:\n got A=%q\nwant A=%q\n got B=%q\nwant B=%q",
+			logs[0].IdempotencyKey, wantA, logs[1].IdempotencyKey, wantB)
+	}
+	// Digest is single-use: after re-stamping it must be cleared so the
+	// wire record never carries a second, stale identity source.
+	if logs[0].KeyCommandDigest != "" || logs[1].KeyCommandDigest != "" {
+		t.Fatalf("KeyCommandDigest must be cleared after re-stamping")
+	}
+}

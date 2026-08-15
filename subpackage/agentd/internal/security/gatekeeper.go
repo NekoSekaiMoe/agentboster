@@ -50,6 +50,7 @@ func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason s
 	if keyCmd == "" {
 		keyCmd = r.Command
 	}
+	key, digest := clawless.BuildReviewIdempotencyKeyAndDigest(r.TaskID, level, decision, keyCmd)
 	return clawless.ReviewLog{
 		TaskID:         r.TaskID,
 		SessionID:      r.SessionID,
@@ -59,7 +60,11 @@ func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason s
 		Score:          score,
 		Decision:       decision,
 		Reason:         reason,
-		IdempotencyKey: clawless.BuildReviewIdempotencyKey(r.TaskID, level, decision, keyCmd),
+		IdempotencyKey: key,
+		// Pin the raw-output digest so later re-stamping (loop.stampReviewLogs
+		// swapping a placeholder task id) rebuilds the key from the RAW output
+		// hash, not the truncated Command copy (see KeyCommandDigest).
+		KeyCommandDigest: digest,
 	}
 }
 

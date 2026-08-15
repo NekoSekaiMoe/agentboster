@@ -300,15 +300,36 @@ func stampReviewLogs(logs []clawless.ReviewLog, agentCtx *AgentContext) {
 		// normalized: the gatekeeper baked the placeholder/empty task id
 		// into the key at ReviewLog() construction time, and a stale key
 		// would make the same audit record collide with (or diverge from)
-		// its canonical identity. Uses the shared BuildReviewIdempotencyKey
-		// so the format matches the gatekeeper's exactly.
+		// its canonical identity.
+		//
+		// When the original key exists, re-derive it from the pinned raw-
+		// output digest (KeyCommandDigest) instead of re-hashing Command:
+		// Command is the sanitized/truncated copy, so re-hashing it would
+		// collapse distinct long outputs (>256 bytes, identical prefix)
+		// onto the same key and silently drop audit records at the
+		// receiver's (trace_id, idempotency_key) dedup. Only the task id is
+		// substituted; the digest stays byte-identical to what the
+		// gatekeeper computed from the raw output.
 		if taskIDChanged || logs[i].IdempotencyKey == "" {
-			logs[i].IdempotencyKey = clawless.BuildReviewIdempotencyKey(
-				logs[i].TaskID,
-				logs[i].Level,
-				logs[i].Decision,
-				logs[i].Command,
-			)
+			if logs[i].IdempotencyKey != "" && logs[i].KeyCommandDigest != "" {
+				logs[i].IdempotencyKey = clawless.ReviewIdempotencyKeyFromDigest(
+					logs[i].TaskID,
+					logs[i].Level,
+					logs[i].Decision,
+					logs[i].KeyCommandDigest,
+				)
+			} else {
+				// No pre-existing key (or digest unavailable on legacy records):
+				// fall back to deriving from Command, matching the receiver's
+				// fallback-key derivation for digest-less records.
+				logs[i].IdempotencyKey = clawless.BuildReviewIdempotencyKey(
+					logs[i].TaskID,
+					logs[i].Level,
+					logs[i].Decision,
+					logs[i].Command,
+				)
+			}
+			logs[i].KeyCommandDigest = ""
 		}
 		if logs[i].UserID == "" {
 			logs[i].UserID = agentCtx.UserID
