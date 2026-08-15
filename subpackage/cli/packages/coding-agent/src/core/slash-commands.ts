@@ -51,14 +51,9 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
   { name: 'logout', description: 'Remove provider authentication' },
   { name: 'new', description: 'Start a new session' },
   { name: 'compact', description: 'Manually compact the session context' },
-  {
-    name: 'init',
-    description: 'Generate an AGENTS.md contributor guide for this repository',
-  },
-  {
-    name: 'context',
-    description: 'Show context window usage and per-category composition',
-  },
+  // NOTE: /init and /context are registered by the built-in extra-cmd
+  // extension and must NOT appear here — listing them would trip the
+  // built-in command conflict diagnostics and shadow the extension entries.
   {
     name: 'plan',
     description:

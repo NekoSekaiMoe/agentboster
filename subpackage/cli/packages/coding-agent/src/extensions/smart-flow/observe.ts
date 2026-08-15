@@ -119,6 +119,29 @@ interface ObserveDetails {
   result: ObserveResult;
 }
 
+/**
+ * Success is derived from the structured result (reason + every
+ * observation's waitStatus), not the rendered text: a target whose own
+ * output merely mentions "timeout" must not flip the status. Falls back to
+ * the legacy text match when details are missing (contract drift).
+ */
+function observeResultOk(
+  details: ObserveDetails | undefined,
+  text: string,
+): boolean {
+  const result = details?.result;
+  if (!result) return !text.match(/timeout|aborted|not-found/);
+  if (result.reason === 'timeout' || result.reason === 'aborted') return false;
+  return result.observations.every((observation) => {
+    const status = observation.waitStatus;
+    return (
+      status === undefined ||
+      status === 'completed' ||
+      status === 'result-ready'
+    );
+  });
+}
+
 export function registerObserve(pi: ExtensionAPI): void {
   pi.registerTool({
     name: 'observe',
@@ -132,7 +155,7 @@ export function registerObserve(pi: ExtensionAPI): void {
       params: UnifiedObserveParams,
       signal: AbortSignal,
     ): Promise<AgentToolResult<ObserveDetails>> {
-      const result = await observeTargets(params, signal);
+      const result = await observeTargets(params, signal, pi);
       const output = formatObserveResult(result, params.detail === 'full');
       // NOTE: the failure reason (timeout/aborted/not-found) is stated in the
       // output text itself.
@@ -160,7 +183,7 @@ export function registerObserve(pi: ExtensionAPI): void {
           : '';
       return toolResultLine(theme, {
         name: 'observe',
-        ok: !text.match(/timeout|aborted|not-found/),
+        ok: observeResultOk(result.details as ObserveDetails | undefined, text),
         summary: resultFirstLine(result),
         expanded: opts.expanded,
         detail: text,

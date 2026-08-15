@@ -169,6 +169,21 @@ export function summarizeToolCall(
   if (name === 'clear_history') return 'Clearing thinking history';
   if (name === 'export_session') return 'Exporting thinking session';
   if (name === 'import_session') return 'Importing thinking session';
+  if (name === 'bash_bg') {
+    const action = pickToolArg(toolCall.args, ['action']) || 'run';
+    if ((action === 'run' || action === 'start') && command)
+      return `Background bash: ${truncateText(command, 72)}`;
+    const jobId = pickToolArg(toolCall.args, ['jobId', 'jobid']);
+    return jobId
+      ? `bash_bg ${action} ${truncateText(jobId, 40)}`
+      : `bash_bg ${action}`;
+  }
+  if (name === 'observe') {
+    const action = pickToolArg(toolCall.args, ['action']) || 'status';
+    const targets = toolCall.args.targets;
+    const count = Array.isArray(targets) ? targets.length : 0;
+    return `observe ${action} ${count} target${count === 1 ? '' : 's'}`;
+  }
   if (path) return `${toolCall.name} ${truncateText(path, 74)}`;
   return `Ran ${toolCall.name}`;
 }

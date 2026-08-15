@@ -133,7 +133,6 @@ import {
   MissingSessionCwdError,
 } from '../../core/session-cwd.ts';
 import {
-  type SessionContext,
   type SessionEntry,
   type SessionInfo,
   SessionManager,
@@ -3939,12 +3938,10 @@ export class InteractiveMode {
    * Walks the compaction-aware entry path so display-only custom entries
    * (e.g. /context reports) render at their tree positions; they never enter
    * LLM context.
-   * @param sessionContext Session context to render (only used for parity checks)
    * @param options.updateFooter Update footer state
    * @param options.populateHistory Add user messages to editor history
    */
   private renderSessionContext(
-    _sessionContext: SessionContext,
     options: { updateFooter?: boolean; populateHistory?: boolean } = {},
   ): void {
     this.renderSessionEntries(
@@ -4036,9 +4033,9 @@ export class InteractiveMode {
   }
 
   renderInitialMessages(): void {
-    // Get aligned messages and entries from session context
-    const context = this.sessionManager.buildSessionContext();
-    this.renderSessionContext(context, {
+    // Render the compaction-aware entry path (display-only custom entries
+    // included; LLM context itself is built on demand by the agent loop).
+    this.renderSessionContext({
       updateFooter: true,
       populateHistory: true,
     });
@@ -4095,8 +4092,7 @@ export class InteractiveMode {
 
   private rebuildChatFromMessages(): void {
     this.chatContainer.clear();
-    const context = this.sessionManager.buildSessionContext();
-    this.renderSessionContext(context);
+    this.renderSessionContext();
   }
 
   // =========================================================================

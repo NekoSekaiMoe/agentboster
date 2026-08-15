@@ -22,6 +22,7 @@ export function StringEnum<T extends readonly string[]>(
     type: 'string',
     enum: values as any,
     ...(options?.description && { description: options.description }),
-    ...(options?.default && { default: options.default }),
+    // `!== undefined` (not truthiness) so an empty-string default survives.
+    ...(options?.default !== undefined && { default: options.default }),
   });
 }

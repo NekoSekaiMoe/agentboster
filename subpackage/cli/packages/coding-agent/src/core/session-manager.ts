@@ -590,28 +590,14 @@ export function buildSessionContext(
   // 3. Emit messages after compaction
   const messages: AgentMessage[] = [];
 
+  // Reuse sessionEntryToContextMessages so both context paths normalize
+  // entries identically (null/missing content -> empty array, custom_message
+  // content fallback). Compaction entries are handled explicitly below
+  // (summary first, then kept messages) — older compactions on the path must
+  // not re-emit their summaries here.
   const appendMessage = (entry: SessionEntry) => {
-    if (entry.type === 'message') {
-      messages.push(entry.message);
-    } else if (entry.type === 'custom_message') {
-      messages.push(
-        createCustomMessage(
-          entry.customType,
-          entry.content,
-          entry.display,
-          entry.details,
-          entry.timestamp,
-        ),
-      );
-    } else if (entry.type === 'branch_summary' && entry.summary) {
-      messages.push(
-        createBranchSummaryMessage(
-          entry.summary,
-          entry.fromId,
-          entry.timestamp,
-        ),
-      );
-    }
+    if (entry.type === 'compaction') return;
+    messages.push(...sessionEntryToContextMessages(entry));
   };
 
   if (compaction) {

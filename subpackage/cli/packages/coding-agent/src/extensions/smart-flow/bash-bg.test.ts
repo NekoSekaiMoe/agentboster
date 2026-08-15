@@ -1,6 +1,19 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import type { ExtensionAPI } from '../../core/extensions/index.ts';
 import { observeTargets } from './observation.ts';
+
+type HandlerMap = Map<string, (data: unknown) => void | Promise<void>>;
+
+// Every makeApi() call registers here so afterEach can drive session_shutdown
+// and release jobs, temp dirs, and the global observation-provider registry.
+const activeHandlerMaps: HandlerMap[] = [];
+
+afterEach(async () => {
+  while (activeHandlerMaps.length > 0) {
+    const handlers = activeHandlerMaps.pop();
+    await handlers?.get('session_shutdown')?.(undefined);
+  }
+});
 
 /**
  * Minimal ExtensionAPI stand-in: registerBashBg only touches registerTool,
@@ -11,11 +24,11 @@ function makeApi(): {
   api: ExtensionAPI;
   tools: Map<string, any>;
   messages: Array<{ customType: string; content: string }>;
-  handlers: Map<string, (data: unknown) => void | Promise<void>>;
+  handlers: HandlerMap;
 } {
   const tools = new Map<string, any>();
   const messages: Array<{ customType: string; content: string }> = [];
-  const handlers = new Map<string, (data: unknown) => void | Promise<void>>();
+  const handlers: HandlerMap = new Map();
   const api = {
     registerTool: vi.fn((tool: any) => {
       tools.set(tool.name, tool);
@@ -23,16 +36,22 @@ function makeApi(): {
     registerCommand: vi.fn(),
     events: {
       emit: vi.fn(),
-      on: vi.fn((_channel: string, handler: (data: unknown) => void) => {
-        handlers.set(_channel, handler);
-        return () => handlers.delete(_channel);
+      on: vi.fn((channel: string, handler: (data: unknown) => void) => {
+        handlers.set(channel, handler);
+        return () => handlers.delete(channel);
       }),
     },
     sendMessage: vi.fn((message: { customType: string; content: string }) => {
       messages.push(message);
     }),
-    on: vi.fn(),
+    // Lifecycle handlers (session_start/session_shutdown/...) must be stored
+    // like events.on handlers, otherwise cleanup can never be exercised.
+    on: vi.fn((event: string, handler: (data: unknown) => void) => {
+      handlers.set(event, handler);
+      return () => handlers.delete(event);
+    }),
   } as unknown as ExtensionAPI;
+  activeHandlerMaps.push(handlers);
   return { api, tools, messages, handlers };
 }
 
@@ -62,7 +81,7 @@ describe('smart-flow bash_bg', () => {
 
     const result = await tool.execute(
       't2',
-      { action: 'run', command: 'sleep 5', timeout: 1 },
+      { action: 'run', command: 'sleep 2', timeout: 1 },
       undefined,
     );
     const text = (result.content[0] as { text: string }).text;
@@ -71,7 +90,7 @@ describe('smart-flow bash_bg', () => {
     expect(jobId).toMatch(/^bg-/);
 
     // Wait for the background job to complete and trigger the notification.
-    await new Promise((resolve) => setTimeout(resolve, 5_500));
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
     const complete = messages.find((m) => m.customType === 'bash-bg-complete');
     expect(complete).toBeDefined();
     expect(complete?.content).toContain(jobId);

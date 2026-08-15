@@ -3,7 +3,10 @@
 // Adapted for the agentboster thin-client fork: imports resolve to the
 // in-repo packages; the tool always executes on this machine (extension tools
 // are never routed to a remote agentd node).
-import type { ExtensionAPI } from '../../core/extensions/index.ts';
+import type {
+  ExtensionAPI,
+  ExtensionUIContext,
+} from '../../core/extensions/index.ts';
 import { getShellConfig } from '../../utils/shell.ts';
 import type { AgentToolResult } from '@agentboster-cli/agent';
 import { Text } from '@agentboster-cli/tui';
@@ -20,11 +23,12 @@ import {
   resultFirstLine,
 } from './quiet-render.ts';
 import { Type } from 'typebox';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 const MAX_TAIL_BYTES = 64 * 1024;
 const MAX_LOG_BYTES = 16 * 1024 * 1024;
@@ -255,6 +259,48 @@ function jobDetails(
   };
 }
 
+/**
+ * Async replacement for spawnSync('taskkill', ...): terminating many jobs on
+ * Windows (Promise.allSettled over session_shutdown) must not block the event
+ * loop for up to WINDOWS_TASKKILL_TIMEOUT_MS per job. Same arguments/options
+ * as before; resolves true when the timeout fired and taskkill was SIGKILLed.
+ */
+function runWindowsTaskkill(pid: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timedOut = false;
+    let child: ChildProcess | undefined;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(timedOut);
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        child?.kill('SIGKILL');
+      } catch {
+        // already gone
+      }
+      finish();
+    }, WINDOWS_TASKKILL_TIMEOUT_MS);
+    timer.unref?.();
+    try {
+      child = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } catch {
+      finish();
+      return;
+    }
+    child.unref();
+    child.on('exit', finish);
+    child.on('error', finish);
+  });
+}
+
 function signalProcessTree(
   child: ChildProcess,
   pid: number,
@@ -447,6 +493,28 @@ export function registerBashBg(
   let disposeObservationProvider: (() => void) | undefined;
   let disposeQueryListener: (() => void) | undefined;
   let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
+  // Captured from the session_start handler context. Used to surface a
+  // background-job indicator on UIs across the RPC boundary (desktop), where
+  // the in-process pi.events bus is invisible.
+  let sessionUi: ExtensionUIContext | undefined;
+  let uiStatusActive = false;
+
+  const publishUiStatus = (): void => {
+    if (!sessionUi) return;
+    const running = [...jobs.values()].filter(jobIsActive);
+    const text =
+      running.length === 0
+        ? undefined
+        : `⏳ ${running.length} background bash job${running.length === 1 ? '' : 's'}: ${running.map((job) => job.id).join(', ')}`;
+    // Only clear when we previously set a status.
+    if (text === undefined && !uiStatusActive) return;
+    uiStatusActive = text !== undefined;
+    try {
+      sessionUi.setStatus('bash-bg', text);
+    } catch {
+      // UI bridge is best-effort; never break job lifecycle on it.
+    }
+  };
 
   const pruneCompletedJobs = (): void => {
     const completed = [...jobs.values()]
@@ -478,6 +546,7 @@ export function registerBashBg(
         .map(jobSnapshot),
     };
     pi.events.emit(BASH_BG_UPDATE_EVENT, payload);
+    publishUiStatus();
   };
   const publishSnapshotSoon = (): void => {
     if (disposed || snapshotTimer) return;
@@ -493,6 +562,9 @@ export function registerBashBg(
     disposed = false;
     disposeObservationProvider = registerObservationProvider(
       bashObservationProvider,
+      // Scope the provider to this session's extension instance so a second
+      // createAgentSession() in the same process can't replace or observe it.
+      pi,
     );
     const queryDisposer = pi.events.on(BASH_BG_QUERY_EVENT, publishSnapshot);
     disposeQueryListener =
@@ -566,19 +638,7 @@ export function registerBashBg(
       let taskkillTimedOut = false;
       if (process.platform === 'win32') {
         if (job.pid > 0) {
-          const result = spawnSync(
-            'taskkill',
-            ['/pid', String(job.pid), '/T', '/F'],
-            {
-              stdio: 'ignore',
-              windowsHide: true,
-              timeout: WINDOWS_TASKKILL_TIMEOUT_MS,
-              killSignal: 'SIGKILL',
-            },
-          );
-          taskkillTimedOut =
-            (result.error as NodeJS.ErrnoException | undefined)?.code ===
-            'ETIMEDOUT';
+          taskkillTimedOut = await runWindowsTaskkill(job.pid);
         }
         terminated = await waitForTerminationBoundary(
           job,
@@ -696,6 +756,21 @@ export function registerBashBg(
     };
     jobs.set(id, job);
     publishSnapshot();
+    // UTF-8 sequences can split across data chunks; decode incrementally
+    // instead of per-chunk toString(), which corrupts split sequences.
+    const tailDecoder = new StringDecoder('utf8');
+    const appendTail = (text: string): void => {
+      if (!text) return;
+      job.tail += text;
+      // Enforce the cap in encoded bytes (not UTF-16 code units), trimming on
+      // a byte boundary; toString() replaces any partial leading sequence.
+      const tailBytes = Buffer.byteLength(job.tail, 'utf8');
+      if (tailBytes > MAX_TAIL_BYTES) {
+        const buf = Buffer.from(job.tail, 'utf8');
+        job.tail = buf.subarray(tailBytes - MAX_TAIL_BYTES).toString('utf8');
+        job.tailTruncated = true;
+      }
+    };
     const append = (d: Buffer): void => {
       if (disposed || generation !== runtimeGeneration) return;
       const remainingLogBytes = Math.max(0, maxLogBytes - job.logBytes);
@@ -708,11 +783,7 @@ export function registerBashBg(
         job.logBytes += retained.byteLength;
       }
       if (d.byteLength > remainingLogBytes) job.logTruncated = true;
-      job.tail += d.toString('utf8');
-      if (job.tail.length > MAX_TAIL_BYTES) {
-        job.tail = job.tail.slice(-MAX_TAIL_BYTES);
-        job.tailTruncated = true;
-      }
+      appendTail(tailDecoder.write(d));
       job.outputBytes += d.byteLength;
       job.updatedAt = Date.now();
       publishSnapshotSoon();
@@ -754,6 +825,8 @@ export function registerBashBg(
     const finalizeOutput = (): void => {
       if (job.outputFinalized) return;
       job.outputFinalized = true;
+      // Flush any trailing partial UTF-8 sequence held by the decoder.
+      appendTail(tailDecoder.end());
       if (job.outputDrainTimer) {
         clearTimeout(job.outputDrainTimer);
         job.outputDrainTimer = undefined;
@@ -847,7 +920,10 @@ export function registerBashBg(
   };
 
   initializeRuntime();
-  pi.on('session_start', initializeRuntime);
+  pi.on('session_start', (_event, ctx) => {
+    sessionUi = ctx.hasUI ? ctx.ui : undefined;
+    initializeRuntime();
+  });
 
   pi.registerTool({
     name: 'bash_bg',
@@ -963,15 +1039,6 @@ export function registerBashBg(
       if (!job) throw new Error(`Unknown jobId: ${params.jobId}`);
 
       if (params.action === 'status') {
-        await observeTargets(
-          {
-            action: 'status',
-            targets: [{ kind: 'bash_bg', id: job.id }],
-            detail: 'full',
-            lines: tailCount,
-          },
-          signal,
-        );
         const state = job.done
           ? `${jobStatus(job)} (exit ${job.exitCode})`
           : jobStatus(job);
@@ -1012,6 +1079,7 @@ export function registerBashBg(
           timeoutMs,
         },
         signal,
+        pi,
       );
       if (observed.reason === 'aborted') throw new Error('aborted');
       const state = job.done
@@ -1102,7 +1170,20 @@ export function registerBashBg(
     const retiringBaseDir = baseDir;
     const retiringJobs = [...jobs.values()];
     for (const job of retiringJobs) job.background = false;
-    await Promise.all(retiringJobs.map((job) => terminateJob(job)));
+    // allSettled: one failed termination must not abort the remaining
+    // shutdown cleanup (disposal, jobs.clear(), temp-dir removal).
+    const terminationResults = await Promise.allSettled(
+      retiringJobs.map((job) => terminateJob(job)),
+    );
+    terminationResults.forEach((result, index) => {
+      if (result.status !== 'rejected') return;
+      const job = retiringJobs[index];
+      const message =
+        result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason);
+      job.terminationFailure ??= message;
+    });
 
     for (const job of retiringJobs) {
       if (job.outputDrainTimer) {
@@ -1131,6 +1212,15 @@ export function registerBashBg(
     jobs.clear();
     observationWaiters.clear();
     baseDir = '';
+    if (uiStatusActive) {
+      uiStatusActive = false;
+      try {
+        sessionUi?.setStatus('bash-bg', undefined);
+      } catch {
+        // best effort during shutdown
+      }
+    }
+    sessionUi = undefined;
     try {
       fs.rmSync(retiringBaseDir, { recursive: true, force: true });
     } catch {

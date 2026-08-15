@@ -219,6 +219,9 @@ export interface NotificationActionTarget {
 export class ExtensionUiHandler {
   private overlayContainer: HTMLElement | null = null;
   private statusContainer: HTMLElement | null = null;
+  // Per-key status text so one extension clearing its status does not wipe
+  // others (e.g. smart-flow's bash-bg job indicator vs. voice/notify).
+  private statusByKey = new Map<string, string>();
   private widgetAboveContainer: HTMLElement | null = null;
   private widgetBelowContainer: HTMLElement | null = null;
   private onSetEditorText: ((text: string) => void) | null = null;
@@ -1000,29 +1003,47 @@ export class ExtensionUiHandler {
 
     const statusKey =
       typeof request.statusKey === 'string' ? request.statusKey.trim() : '';
+    const mapKey = statusKey || '__default__';
+
     if (statusKey && shouldSuppressUiStatusKey(statusKey)) {
-      this.statusContainer.classList.add('hidden');
-      this.statusContainer.innerHTML = '';
+      this.statusByKey.delete(mapKey);
+      this.renderStatusContainer();
       return;
     }
 
     if (request.statusText === undefined) {
-      // Clear status
+      // Clear status: only this key when one is given, everything otherwise.
+      if (statusKey) this.statusByKey.delete(mapKey);
+      else this.statusByKey.clear();
+      this.renderStatusContainer();
+      return;
+    }
+
+    const text = sanitizeUiStatusText(request.statusText);
+    if (!text || shouldSuppressUiStatusText(text)) {
+      this.statusByKey.delete(mapKey);
+      this.renderStatusContainer();
+      return;
+    }
+    this.statusByKey.set(mapKey, text);
+    this.renderStatusContainer();
+  }
+
+  private renderStatusContainer(): void {
+    if (!this.statusContainer) return;
+    const texts = [...this.statusByKey.values()];
+    if (texts.length === 0) {
       this.statusContainer.classList.add('hidden');
       this.statusContainer.innerHTML = '';
-    } else {
-      const text = sanitizeUiStatusText(request.statusText);
-      if (!text || shouldSuppressUiStatusText(text)) {
-        this.statusContainer.classList.add('hidden');
-        this.statusContainer.innerHTML = '';
-        return;
-      }
-      this.statusContainer.classList.remove('hidden');
-      render(
-        html`<div class="text-xs text-muted-foreground px-3 py-1">${text}</div>`,
-        this.statusContainer,
-      );
+      return;
     }
+    this.statusContainer.classList.remove('hidden');
+    render(
+      html`<div class="text-xs text-muted-foreground px-3 py-1">
+        ${texts.join(' · ')}
+      </div>`,
+      this.statusContainer,
+    );
   }
 
   private setWidget(request: ExtensionUiRequest): void {

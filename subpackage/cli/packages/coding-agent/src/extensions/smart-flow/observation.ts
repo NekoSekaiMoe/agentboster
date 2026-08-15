@@ -96,7 +96,39 @@ export interface ObserveResult {
 const REGISTRY_KEY = Symbol.for(
   'agentboster.smart-flow.observation-providers.v1',
 );
+const SCOPE_IDS_KEY = Symbol.for(
+  'agentboster.smart-flow.observation-scopes.v1',
+);
 const globals = globalThis as typeof globalThis & Record<symbol, unknown>;
+
+/**
+ * Providers are scoped to the extension instance that registered them (the
+ * `ExtensionAPI` object doubles as the session identity: every
+ * createAgentSession() run loads its own extension instances). Without a
+ * scope the registration is process-global (tests, standalone usage). The
+ * scope token is encoded into the registry key so a second session can never
+ * replace — or observe — another session's provider for the same kind.
+ */
+function scopeId(scope: object): number {
+  let ids = globals[SCOPE_IDS_KEY] as
+    | { map: WeakMap<object, number>; next: number }
+    | undefined;
+  if (!ids || !(ids.map instanceof WeakMap)) {
+    ids = { map: new WeakMap<object, number>(), next: 0 };
+    globals[SCOPE_IDS_KEY] = ids;
+  }
+  const existing = ids.map.get(scope);
+  if (existing !== undefined) return existing;
+  const id = ++ids.next;
+  ids.map.set(scope, id);
+  return id;
+}
+
+function registryKey(kind: string, scope?: object): string {
+  // NUL separator: kinds never contain it, so scoped keys can't collide with
+  // global ones.
+  return scope ? `${scopeId(scope)} ${kind}` : kind;
+}
 
 function registry(): Map<string, ObservationProvider> {
   const existing = globals[REGISTRY_KEY];
@@ -109,20 +141,22 @@ function registry(): Map<string, ObservationProvider> {
 
 export function registerObservationProvider(
   provider: ObservationProvider,
+  scope?: object,
 ): () => void {
   if (!provider.kind.trim())
     throw new Error('Observation provider kind must not be empty.');
-  registry().set(provider.kind, provider);
+  const key = registryKey(provider.kind, scope);
+  registry().set(key, provider);
   return () => {
-    if (registry().get(provider.kind) === provider)
-      registry().delete(provider.kind);
+    if (registry().get(key) === provider) registry().delete(key);
   };
 }
 
 export function getObservationProvider(
   kind: string,
+  scope?: object,
 ): ObservationProvider | undefined {
-  return registry().get(kind);
+  return registry().get(registryKey(kind, scope));
 }
 
 export function listObservationProviders(): ObservationProvider[] {
@@ -229,6 +263,7 @@ function validate(params: ObserveParams): void {
 export async function observeTargets(
   params: ObserveParams,
   signal?: AbortSignal,
+  scope?: object,
 ): Promise<ObserveResult> {
   validate(params);
   const startedAt = Date.now();
@@ -237,7 +272,7 @@ export async function observeTargets(
   if (params.action === 'status') {
     const observations = await Promise.all(
       params.targets.map(async (target) => {
-        const provider = getObservationProvider(target.kind);
+        const provider = getObservationProvider(target.kind, scope);
         if (!provider)
           return unavailable(
             target,
@@ -267,7 +302,7 @@ export async function observeTargets(
     // every status transition. Returns the full transition timeline (initial
     // snapshot plus each change), which is richer than a one-shot status and
     // does not require a barrier condition like wait.
-    return watchTargets(params, options, startedAt, signal);
+    return watchTargets(params, options, startedAt, signal, scope);
   }
 
   const controller = new AbortController();
@@ -323,7 +358,7 @@ export async function observeTargets(
     signal?.addEventListener('abort', onAbort, { once: true });
 
     params.targets.forEach((target, index) => {
-      const provider = getObservationProvider(target.kind);
+      const provider = getObservationProvider(target.kind, scope);
       const wait = provider
         ? Promise.resolve()
             .then(() => {
@@ -367,6 +402,7 @@ async function watchTargets(
   options: ReturnType<typeof normalizedParams>,
   startedAt: number,
   signal?: AbortSignal,
+  scope?: object,
 ): Promise<ObserveResult> {
   const pollMs = Math.min(
     1_000,
@@ -374,7 +410,7 @@ async function watchTargets(
   );
   const deadline = startedAt + options.timeoutMs;
   const providers = params.targets.map((target) =>
-    getObservationProvider(target.kind),
+    getObservationProvider(target.kind, scope),
   );
   const lastSeen = new Map<number, string>();
   const transitions: ObservationSnapshot[] = [];
