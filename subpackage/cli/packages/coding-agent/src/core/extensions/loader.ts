@@ -86,7 +86,22 @@ function getAliases(): Record<string, string> {
   if (_aliases) return _aliases;
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const packageIndex = path.resolve(__dirname, '../..', 'index.js');
+  // In the dev/dist layout, loader.js sits at dist/core/extensions/, so
+  // ../../index.js is the package's own entry. In the single-file CJS bundle
+  // that path math lands outside the package — fall back to resolving the
+  // workspace package (which, in the bundle, is the CLI's own node_modules
+  // copy of the built package or the bundle's real dist neighbor).
+  let packageIndex = path.resolve(__dirname, '../..', 'index.js');
+  if (!fs.existsSync(packageIndex)) {
+    try {
+      packageIndex = require.resolve('@agentboster-cli/core', {
+        conditions: new Set(['import']),
+      } as never);
+    } catch {
+      // keep the (missing) relative path; the error will surface on first
+      // extension load with an actionable message
+    }
+  }
 
   const typeboxEntry = require.resolve('typebox');
   const typeboxCompileEntry = require.resolve('typebox/compile');
@@ -101,7 +116,20 @@ function getAliases(): Record<string, string> {
     if (fs.existsSync(workspacePath)) {
       return workspacePath;
     }
-    return fileURLToPath(import.meta.resolve(specifier));
+    // createRequire().resolve() instead of import.meta.resolve: in the CJS
+    // bundle, esbuild lowers import.meta to an empty object (var import_meta = {}),
+    // so import.meta.resolve throws "import_meta.resolve is not a function".
+    // createRequire(import.meta.url) is defined-shimmed to __filename by the
+    // bundle banner and resolves identically in both Node ESM and CJS modes.
+    // The Set(['import']) conditions mirror ESM resolution semantics: the
+    // workspace packages' exports maps only declare import conditions, which
+    // plain CJS require.resolve refuses to match.
+    return require.resolve(
+      specifier,
+      // Node >= 22.15 accepts an ESM-conditions set; @types/node lags behind,
+      // hence the cast.
+      { conditions: new Set(['import']) } as never,
+    );
   };
 
   const piCodingAgentEntry = packageIndex;
