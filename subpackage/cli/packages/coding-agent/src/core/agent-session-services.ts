@@ -35,6 +35,7 @@ function resolveBuiltinExtensionPaths(): string[] {
     'pi-simplify',
     'pi-web-search',
     '@feniix/pi-sequential-thinking',
+    '@narumitw/pi-subagents',
   ];
   for (const pkg of packages) {
     try {

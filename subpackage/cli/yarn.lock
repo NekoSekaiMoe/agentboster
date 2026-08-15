@@ -2,10 +2,10 @@
 # yarn lockfile v1
 
 
-"@agentboster-cli/tui@npm:@earendil-works/pi-tui@0.80.2":
-  version "0.80.2"
-  resolved "https://registry.npmmirror.com/@earendil-works/pi-tui/-/pi-tui-0.80.2.tgz#76b7bbe873f2d7c596faa3bdce0ff31b60027703"
-  integrity sha512-OvOAMIbXiC9OSse17YMiXIsI9AS5XM/ZV8N/k+UzdlRpPILDQYmLElevgGW92kkXR8qHBClIdzhCjuzlBGvphA==
+"@agentboster-cli/tui@npm:@earendil-works/pi-tui@0.84.2":
+  version "0.84.2"
+  resolved "https://registry.npmmirror.com/@earendil-works/pi-tui/-/pi-tui-0.84.2.tgz#261adb51b3ec3e558aff4961ae329e6054bf3845"
+  integrity sha512-ds2TLihOnM5sLJB3VpXV6y0uR5efVuHf4MN7yDpsty6hA2DUO/EDVzjp/0od0G2JslzVLMjT8T8zavtxVb+qbg==
   dependencies:
     get-east-asian-width "1.6.0"
     marked "18.0.5"
@@ -355,6 +355,21 @@
   integrity sha512-ZLv/JdUfkvOy9eCnnBaGfiO+XimbjebAeO+MRQqD/B+FR1tnRN0tpKSJHRbE8sFfS6aqsXZ67TQjfwfsxULVbg==
   dependencies:
     "@tybys/wasm-util" "^0.10.3"
+
+"@narumitw/pi-subagents@1.0.1":
+  version "1.0.1"
+  resolved "https://registry.npmmirror.com/@narumitw/pi-subagents/-/pi-subagents-1.0.1.tgz#e1ab30510743a180461b25cea9d9f672d7a098c8"
+  integrity sha512-KtdFMLcVq9NLLXVqdDDfTUVl1nXl/jgOYuUZDD2I+3MRlDowi98quULb6kYHjv/Bohn8OCTnKITC/+E1H/hD+Q==
+  dependencies:
+    "@narumitw/pi-tui-kit" "^0.49.1"
+    proper-lockfile "^4.1.2"
+
+"@narumitw/pi-tui-kit@^0.49.1":
+  version "0.49.3"
+  resolved "https://registry.npmmirror.com/@narumitw/pi-tui-kit/-/pi-tui-kit-0.49.3.tgz#792b16ca8f497b5689d2fb57668d65dbdea9ef61"
+  integrity sha512-ha4MybnoJgAiNpW83Ap7EftfOuO8oNf3mIY3baPO0RFrBPyAUuxSlz7hcs9qh+9daDUMxg3sRPsvzYqFsEQKHg==
+  dependencies:
+    highlight.js "11.11.1"
 
 "@nodelib/fs.scandir@2.1.5":
   version "2.1.5"
@@ -1149,7 +1164,7 @@ glob-parent@^5.1.2:
   dependencies:
     is-glob "^4.0.1"
 
-glob@13.0.6, glob@^13.0.0:
+glob@13.0.6:
   version "13.0.6"
   resolved "https://registry.yarnpkg.com/glob/-/glob-13.0.6.tgz#078666566a425147ccacfbd2e332deb66a2be71d"
   integrity sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==
@@ -1184,6 +1199,11 @@ highlight.js@10.7.3:
   version "10.7.3"
   resolved "https://registry.npmmirror.com/highlight.js/-/highlight.js-10.7.3.tgz#697272e3991356e40c3cac566a74eef681756531"
   integrity sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==
+
+highlight.js@11.11.1:
+  version "11.11.1"
+  resolved "https://registry.npmmirror.com/highlight.js/-/highlight.js-11.11.1.tgz#fca06fa0e5aeecf6c4d437239135fabc15213585"
+  integrity sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==
 
 hono@^4.11.4:
   version "4.13.0"
@@ -1518,11 +1538,6 @@ p-finally@^1.0.0:
   resolved "https://registry.npmmirror.com/p-finally/-/p-finally-1.0.0.tgz#3fbcfb15b899a44123b34b6dcc18b724336a2cae"
   integrity sha512-LICb2p9CB7FS+0eR1oqWnHhp0FljGLZCWBE9aix0Uye9W8LTQPwMTYVGWQWIw9RdQiDg4+epXQODwIYJtSJaow==
 
-package-json-from-dist@^1.0.1:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/package-json-from-dist/-/package-json-from-dist-1.0.1.tgz#4f1471a010827a86f94cfd9b0727e36d267de505"
-  integrity sha512-UEZIS3/by4OC8vL3P2dTXRETpebLI2NiI5vIrjaD/5UtrkFX/tNbwjTSRAGC/+7CAo2pIcBaRgWmcBBHcsaCIw==
-
 parseurl@^1.3.3:
   version "1.3.3"
   resolved "https://registry.npmmirror.com/parseurl/-/parseurl-1.3.3.tgz#9da19e7bee8d12dff0513ed5b76957793bc2e8d4"
@@ -1605,7 +1620,7 @@ postcss@^8.5.15:
     picocolors "^1.1.1"
     source-map-js "^1.2.1"
 
-proper-lockfile@4.1.2:
+proper-lockfile@4.1.2, proper-lockfile@^4.1.2:
   version "4.1.2"
   resolved "https://registry.npmmirror.com/proper-lockfile/-/proper-lockfile-4.1.2.tgz#c8b9de2af6b2f1601067f98e01ac66baa223141f"
   integrity sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==
@@ -1689,14 +1704,6 @@ reusify@^1.0.4:
   version "1.1.0"
   resolved "https://registry.npmmirror.com/reusify/-/reusify-1.1.0.tgz#0fe13b9522e1473f51b558ee796e08f11f9b489f"
   integrity sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==
-
-rimraf@6.1.2:
-  version "6.1.2"
-  resolved "https://registry.yarnpkg.com/rimraf/-/rimraf-6.1.2.tgz#9a0f3cea2ab853e81291127422116ecf2a86ae89"
-  integrity sha512-cFCkPslJv7BAXJsYlK1dZsbP8/ZNLkCAQ0bi1hf5EKX2QHegmDFEFA6QhuYJlk7UDdc+02JjO80YSOrWPpw06g==
-  dependencies:
-    glob "^13.0.0"
-    package-json-from-dist "^1.0.1"
 
 rolldown@~1.1.2:
   version "1.1.3"

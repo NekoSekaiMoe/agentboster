@@ -54,7 +54,8 @@ import {
   setKeybindings,
   Text,
   TruncatedText,
-  TUI,
+  type TUI,
+  TuiMainScreen,
   visibleWidth,
 } from '@agentboster-cli/tui';
 import chalk from 'chalk';
@@ -526,7 +527,7 @@ export class InteractiveMode {
       await this.rebindCurrentSession({ renderBeforeBind: true });
     });
     this.version = VERSION;
-    this.ui = new TUI(
+    this.ui = new TuiMainScreen(
       new ProcessTerminal(),
       this.settingsManager.getShowHardwareCursor(),
     );
