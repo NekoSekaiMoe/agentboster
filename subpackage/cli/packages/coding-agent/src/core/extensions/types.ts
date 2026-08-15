@@ -55,6 +55,7 @@ import type { ModelRegistry } from '../model-registry.ts';
 import type {
   BranchSummaryEntry,
   CompactionEntry,
+  CustomEntry,
   ReadonlySessionManager,
   SessionEntry,
   SessionManager,
@@ -833,6 +834,12 @@ export interface ToolExecutionEndEvent {
 
 export type ModelSelectSource = 'set' | 'cycle' | 'restore';
 
+/** Fired when a session entry is appended (e.g. extension appendEntry). */
+export interface EntryAppendedEvent {
+  type: 'entry_appended';
+  entry: SessionEntry;
+}
+
 /** Fired when a new model is selected */
 export interface ModelSelectEvent {
   type: 'model_select';
@@ -1120,6 +1127,7 @@ export type ExtensionEvent =
   | ToolExecutionUpdateEvent
   | ToolExecutionEndEvent
   | ModelSelectEvent
+  | EntryAppendedEvent
   | ThinkingLevelSelectEvent
   | UserBashEvent
   | InputEvent
@@ -1209,6 +1217,17 @@ export interface MessageRenderOptions {
 export type MessageRenderer<T = unknown> = (
   message: CustomMessage<T>,
   options: MessageRenderOptions,
+  theme: Theme,
+) => Component | undefined;
+
+export interface EntryRenderOptions {
+  expanded: boolean;
+}
+
+/** Renderer for CustomEntry entries (persisted, display-only, not sent to the LLM). */
+export type EntryRenderer<T = unknown> = (
+  entry: CustomEntry<T>,
+  options: EntryRenderOptions,
   theme: Theme,
 ) => Component | undefined;
 
@@ -1341,6 +1360,10 @@ export interface ExtensionAPI {
   ): void;
   on(event: 'model_select', handler: ExtensionHandler<ModelSelectEvent>): void;
   on(
+    event: 'entry_appended',
+    handler: ExtensionHandler<EntryAppendedEvent>,
+  ): void;
+  on(
     event: 'thinking_level_select',
     handler: ExtensionHandler<ThinkingLevelSelectEvent>,
   ): void;
@@ -1412,6 +1435,12 @@ export interface ExtensionAPI {
   registerMessageRenderer<T = unknown>(
     customType: string,
     renderer: MessageRenderer<T>,
+  ): void;
+
+  /** Register a custom renderer for CustomEntry. Custom entries do not participate in LLM context. */
+  registerEntryRenderer<T = unknown>(
+    customType: string,
+    renderer: EntryRenderer<T>,
   ): void;
 
   // =========================================================================
@@ -1843,6 +1872,7 @@ export interface Extension {
   handlers: Map<string, HandlerFn[]>;
   tools: Map<string, RegisteredTool>;
   messageRenderers: Map<string, MessageRenderer>;
+  entryRenderers: Map<string, EntryRenderer>;
   commands: Map<string, RegisteredCommand>;
   flags: Map<string, ExtensionFlag>;
   shortcuts: Map<KeyId, ExtensionShortcut>;

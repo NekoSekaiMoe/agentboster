@@ -351,6 +351,13 @@ export class Agent {
 
   /** Clear transcript state, runtime state, and queued messages. */
   reset(): void {
+    // Upstream #7717: reject reset during an active run — clearing
+    // isStreaming/pendingToolCalls mid-run leaves dangling tool calls.
+    if (this.activeRun) {
+      throw new Error(
+        'Agent is already processing. Wait for completion before resetting.',
+      );
+    }
     this._state.messages = [];
     this._state.isStreaming = false;
     this._state.streamingMessage = undefined;

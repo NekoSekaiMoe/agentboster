@@ -52,6 +52,14 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
   { name: 'new', description: 'Start a new session' },
   { name: 'compact', description: 'Manually compact the session context' },
   {
+    name: 'init',
+    description: 'Generate an AGENTS.md contributor guide for this repository',
+  },
+  {
+    name: 'context',
+    description: 'Show context window usage and per-category composition',
+  },
+  {
     name: 'plan',
     description:
       'Toggle plan mode (read-only: investigate, propose plan, then re-enable actions on approval)',

@@ -152,6 +152,7 @@ import type {
 import type {
   BranchSummaryEntry,
   CompactionEntry,
+  SessionEntry,
   SessionManager,
 } from './session-manager.ts';
 import {
@@ -222,6 +223,7 @@ export type AgentSessionEvent =
       steering: readonly string[];
       followUp: readonly string[];
     }
+  | { type: 'entry_appended'; entry: SessionEntry }
   | { type: 'compaction_start'; reason: 'manual' | 'threshold' | 'overflow' }
   | { type: 'session_info_changed'; name: string | undefined }
   | { type: 'thinking_level_changed'; level: ThinkingLevel }
@@ -2633,7 +2635,14 @@ export class AgentSession {
           });
         },
         appendEntry: (customType, data) => {
-          this.sessionManager.appendCustomEntry(customType, data);
+          const entryId = this.sessionManager.appendCustomEntry(
+            customType,
+            data,
+          );
+          const entry = this.sessionManager.getEntry(entryId);
+          if (entry) {
+            this._emit({ type: 'entry_appended', entry });
+          }
         },
         setSessionName: (name) => {
           this.setSessionName(name);

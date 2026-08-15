@@ -133,8 +133,10 @@ import {
 } from '../../core/session-cwd.ts';
 import {
   type SessionContext,
+  type SessionEntry,
   type SessionInfo,
   SessionManager,
+  sessionEntryToContextMessages,
   type SessionListProgress,
   type SessionMessageEntry,
 } from '../../core/session-manager.ts';
@@ -161,6 +163,7 @@ import { BranchSummaryMessageComponent } from './components/branch-summary-messa
 import { CompactionSummaryMessageComponent } from './components/compaction-summary-message.ts';
 import { CountdownTimer } from './components/countdown-timer.ts';
 import { CustomEditor } from './components/custom-editor.ts';
+import { CustomEntryComponent } from './components/custom-entry.ts';
 import { CustomMessageComponent } from './components/custom-message.ts';
 import { DynamicBorder } from './components/dynamic-border.ts';
 import { EarendilAnnouncementComponent } from './components/earendil-announcement.ts';
@@ -3337,6 +3340,13 @@ export class InteractiveMode {
         this.ui.requestRender();
         break;
 
+      case 'entry_appended':
+        if (event.entry.type === 'custom') {
+          this.addCustomEntryToChat(event.entry);
+          this.ui.requestRender();
+        }
+        break;
+
       case 'session_info_changed':
         this.updateTerminalTitle();
         this.footer.invalidate();
@@ -3765,6 +3775,34 @@ export class InteractiveMode {
     this.footer.invalidate();
   }
 
+  private addCustomEntryToChat(
+    entry: Extract<SessionEntry, { type: 'custom' }>,
+  ): void {
+    const renderer = this.session.extensionRunner.getEntryRenderer(
+      entry.customType,
+    );
+    if (!renderer) {
+      return;
+    }
+    const component = new CustomEntryComponent(entry, renderer);
+    component.setExpanded(this.toolOutputExpanded);
+    if (!component.hasContent()) {
+      return;
+    }
+
+    if (this.streamingComponent) {
+      const streamingIndex = this.chatContainer.children.indexOf(
+        this.streamingComponent,
+      );
+      if (streamingIndex >= 0) {
+        this.chatContainer.children.splice(streamingIndex, 0, component);
+        return;
+      }
+    }
+
+    this.chatContainer.addChild(component);
+  }
+
   private addMessageToChat(
     message: AgentMessage,
     options?: { populateHistory?: boolean },
@@ -3897,12 +3935,25 @@ export class InteractiveMode {
 
   /**
    * Render session context to chat. Used for initial load and rebuild after compaction.
-   * @param sessionContext Session context to render
+   * Walks the compaction-aware entry path so display-only custom entries
+   * (e.g. /context reports) render at their tree positions; they never enter
+   * LLM context.
+   * @param sessionContext Session context to render (only used for parity checks)
    * @param options.updateFooter Update footer state
    * @param options.populateHistory Add user messages to editor history
    */
   private renderSessionContext(
-    sessionContext: SessionContext,
+    _sessionContext: SessionContext,
+    options: { updateFooter?: boolean; populateHistory?: boolean } = {},
+  ): void {
+    this.renderSessionEntries(
+      this.sessionManager.buildContextEntries(),
+      options,
+    );
+  }
+
+  private renderSessionEntries(
+    entries: SessionEntry[],
     options: { updateFooter?: boolean; populateHistory?: boolean } = {},
   ): void {
     this.pendingTools.clear();
@@ -3913,61 +3964,67 @@ export class InteractiveMode {
       this.updateEditorBorderColor();
     }
 
-    for (const message of sessionContext.messages) {
-      // Assistant messages need special handling for tool calls
-      if (message.role === 'assistant') {
-        this.addMessageToChat(message);
-        // Render tool call components
-        for (const content of message.content) {
-          if (content.type === 'toolCall') {
-            const component = new ToolExecutionComponent(
-              content.name,
-              content.id,
-              content.arguments,
-              {
-                showImages: this.settingsManager.getShowImages(),
-                imageWidthCells: this.settingsManager.getImageWidthCells(),
-              },
-              this.getRegisteredToolDefinition(content.name),
-              this.ui,
-              this.sessionManager.getCwd(),
-            );
-            component.setExpanded(this.toolOutputExpanded);
-            this.chatContainer.addChild(component);
+    for (const entry of entries) {
+      if (entry.type === 'custom') {
+        this.addCustomEntryToChat(entry);
+        continue;
+      }
+      for (const message of sessionEntryToContextMessages(entry)) {
+        // Assistant messages need special handling for tool calls
+        if (message.role === 'assistant') {
+          this.addMessageToChat(message);
+          // Render tool call components
+          for (const content of message.content) {
+            if (content.type === 'toolCall') {
+              const component = new ToolExecutionComponent(
+                content.name,
+                content.id,
+                content.arguments,
+                {
+                  showImages: this.settingsManager.getShowImages(),
+                  imageWidthCells: this.settingsManager.getImageWidthCells(),
+                },
+                this.getRegisteredToolDefinition(content.name),
+                this.ui,
+                this.sessionManager.getCwd(),
+              );
+              component.setExpanded(this.toolOutputExpanded);
+              this.chatContainer.addChild(component);
 
-            if (
-              message.stopReason === 'aborted' ||
-              message.stopReason === 'error'
-            ) {
-              let errorMessage: string;
-              if (message.stopReason === 'aborted') {
-                const retryAttempt = this.session.retryAttempt;
-                errorMessage =
-                  retryAttempt > 0
-                    ? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? 's' : ''}`
-                    : 'Operation aborted';
+              if (
+                message.stopReason === 'aborted' ||
+                message.stopReason === 'error'
+              ) {
+                let errorMessage: string;
+                if (message.stopReason === 'aborted') {
+                  const retryAttempt = this.session.retryAttempt;
+                  errorMessage =
+                    retryAttempt > 0
+                      ? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? 's' : ''}`
+                      : 'Operation aborted';
+                } else {
+                  errorMessage = message.errorMessage || 'Error';
+                }
+                component.updateResult({
+                  content: [{ type: 'text', text: errorMessage }],
+                  isError: true,
+                });
               } else {
-                errorMessage = message.errorMessage || 'Error';
+                renderedPendingTools.set(content.id, component);
               }
-              component.updateResult({
-                content: [{ type: 'text', text: errorMessage }],
-                isError: true,
-              });
-            } else {
-              renderedPendingTools.set(content.id, component);
             }
           }
+        } else if (message.role === 'toolResult') {
+          // Match tool results to pending tool components
+          const component = renderedPendingTools.get(message.toolCallId);
+          if (component) {
+            component.updateResult(message);
+            renderedPendingTools.delete(message.toolCallId);
+          }
+        } else {
+          // All other messages use standard rendering
+          this.addMessageToChat(message, options);
         }
-      } else if (message.role === 'toolResult') {
-        // Match tool results to pending tool components
-        const component = renderedPendingTools.get(message.toolCallId);
-        if (component) {
-          component.updateResult(message);
-          renderedPendingTools.delete(message.toolCallId);
-        }
-      } else {
-        // All other messages use standard rendering
-        this.addMessageToChat(message, options);
       }
     }
 
