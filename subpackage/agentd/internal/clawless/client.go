@@ -192,6 +192,134 @@ func doVoid(c *Client, ctx context.Context, method, path string, body any) error
 	return err
 }
 
+// PartialCallbackError describes a 207 Multi-Status response from a
+// canonical trace callback batch: some (but not all) records in the
+// batch failed to ingest. The Web receiver (app/api/agentd/v1/trace-callbacks.ts)
+// reports the per-item outcomes as `{ success: true, partial: true, data,
+// errors, failed }` — FailedIndexes mirrors the entries of errors/data
+// that are non-null errors.
+type PartialCallbackError struct {
+	FailedIndexes []int
+	Errors        []string
+	Failed        int
+	Body          string
+}
+
+func (e *PartialCallbackError) Error() string {
+	return fmt.Sprintf("partial callback failure: %d of %d record(s) failed: %s",
+		e.Failed, len(e.Errors), strings.Join(e.Errors, "; "))
+}
+
+// partialCallbackResponse matches the subset of the 207 body we branch
+// on. Only fields that survive JSON round-tripping are included.
+type partialCallbackResponse struct {
+	Success bool              `json:"success"`
+	Partial bool              `json:"partial"`
+	Failed  int               `json:"failed"`
+	Errors  []json.RawMessage `json:"errors"`
+}
+
+// parsePartialCallback decodes a 207 response body. It returns nil when
+// the body does not carry the partial-failure marker ({"partial":true})
+// — in that case the caller treats the response as a plain success.
+func parsePartialCallback(data []byte) *PartialCallbackError {
+	var resp partialCallbackResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil
+	}
+	if !resp.Partial {
+		return nil
+	}
+	pErr := &PartialCallbackError{
+		Failed: resp.Failed,
+		Body:   string(data),
+	}
+	for i, raw := range resp.Errors {
+		var msg string
+		if err := json.Unmarshal(raw, &msg); err != nil || msg == "" {
+			// null entry → that record succeeded.
+			pErr.Errors = append(pErr.Errors, "")
+			continue
+		}
+		pErr.FailedIndexes = append(pErr.FailedIndexes, i)
+		pErr.Errors = append(pErr.Errors, msg)
+	}
+	if resp.Failed == 0 {
+		// Defensive: a mis-signalled 207 without real failures is a
+		// success as far as the caller is concerned.
+		return nil
+	}
+	return pErr
+}
+
+// doVoidTrace is doVoid for the canonical trace callback routes
+// (/api/agentd/v1/review-logs and /tool-activity-logs). Unlike the plain
+// doVoid, it inspects the response body: those routes report partial
+// batch failures as HTTP 207 with a {partial: true, errors: [...]} body,
+// which doRequest would otherwise swallow as success (it only treats
+// >=400 as failure). Returns a *PartialCallbackError when the response
+// carries partial-failure markers; a 207 whose body does not decode into
+// the partial shape is treated as success (same lenient stance as the
+// other doRequest callers).
+func doVoidTrace(c *Client, ctx context.Context, method, path string, body any) error {
+	data, err := c.doRequest(ctx, method, path, body)
+	if err != nil {
+		return err
+	}
+	if pErr := parsePartialCallback(data); pErr != nil {
+		return pErr
+	}
+	return nil
+}
+
+// sendCanonicalBatch posts one canonical trace callback batch with
+// 207-partial awareness: when the server reports that a subset of the
+// records failed, the failed subset is retried exactly once (same
+// idempotency keys — the receiver deduplicates on (trace_id,
+// idempotency_key), so re-sending succeeded records would be a no-op,
+// but we only resend the failed ones to keep the retry batch small).
+// If the retry still reports failures, the aggregated error is returned.
+// A non-partial error (transport failure, 4xx/5xx) is returned
+// immediately without retry.
+func sendCanonicalBatch(ctx context.Context, c *Client, path string, batch []map[string]any) error {
+	err := doVoidTrace(c, ctx, http.MethodPost, path, batch)
+	if err == nil {
+		return nil
+	}
+	var partial *PartialCallbackError
+	if !errors.As(err, &partial) {
+		return err
+	}
+
+	var retry []map[string]any
+	for _, idx := range partial.FailedIndexes {
+		if idx >= 0 && idx < len(batch) {
+			retry = append(retry, batch[idx])
+		}
+	}
+	if len(retry) == 0 {
+		// failed>0 but no correlatable index — nothing sensible to
+		// retry; surface the partial error.
+		return partial
+	}
+	slog.Warn("canonical trace batch partially failed, retrying failed records",
+		"path", path,
+		"batch_size", len(batch),
+		"failed", partial.Failed,
+		"retrying", len(retry),
+	)
+	retryErr := doVoidTrace(c, ctx, http.MethodPost, path, retry)
+	if retryErr == nil {
+		return nil
+	}
+	var retryPartial *PartialCallbackError
+	if errors.As(retryErr, &retryPartial) {
+		return fmt.Errorf("canonical trace batch still failing after retry: %d of %d record(s) failed: %w",
+			retryPartial.Failed, len(retry), retryPartial)
+	}
+	return fmt.Errorf("canonical trace batch retry failed: %w", retryErr)
+}
+
 // ── Blob ─────────────────────────────────────────────────────────────
 
 func (c *Client) UploadFile(ctx context.Context, taskID, fileName string, content []byte, expiresIn time.Duration) (*UploadResult, error) {
@@ -389,7 +517,7 @@ func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
 		// Everything was skipped — avoid posting an empty batch.
 		return nil
 	}
-	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/review-logs", canonical)
+	return sendCanonicalBatch(ctx, c, "/api/agentd/v1/review-logs", canonical)
 }
 
 func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityLog) error {
@@ -459,7 +587,7 @@ func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityL
 		// Everything was skipped — avoid posting an empty batch.
 		return nil
 	}
-	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/tool-activity-logs", canonical)
+	return sendCanonicalBatch(ctx, c, "/api/agentd/v1/tool-activity-logs", canonical)
 }
 
 // ── Memories ─────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import {
 import {
   ensureTraceRun,
   finalizeTraceRun,
+  getCanonicalTraceRun,
   ingestTraceSpan,
 } from '@/lib/core/trace/dal';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
@@ -532,7 +533,9 @@ export async function finalizeRunStep(input: {
   runId: string;
   status: 'completed' | 'stopped' | 'timeout' | 'error';
   error?: string;
-  /** Run duration in ms. When omitted, derived from the session start. */
+  /** Run duration in ms. When omitted, derived from the canonical trace
+   * run's own startedAt — never from the session start, which would smear
+   * prior-run history into every later run of the same session. */
   durationMs?: number;
 }) {
   'use step';
@@ -575,6 +578,18 @@ export async function finalizeRunStep(input: {
   });
 
   const finalizedAt = new Date();
+  // Derive a missing duration from the canonical trace run's own start so
+  // each run's timing reflects only its own execution window. The session's
+  // createdAt is deliberately NOT used: for the second and later runs of a
+  // session it would include all prior-run history in the duration.
+  const canonicalRun = await getCanonicalTraceRun(input.runId);
+  const runStartedAt = canonicalRun?.startedAt
+    ? new Date(canonicalRun.startedAt)
+    : null;
+  const derivedDurationMs =
+    runStartedAt && !Number.isNaN(runStartedAt.getTime())
+      ? Math.max(0, finalizedAt.getTime() - runStartedAt.getTime())
+      : null;
   await finalizeTraceRun({
     traceId: input.runId,
     status:
@@ -586,18 +601,10 @@ export async function finalizeRunStep(input: {
             ? 'timeout'
             : 'cancelled',
     completedAt: finalizedAt,
-    // Duration is required for the trace UI's run timing; derive it from
-    // the earliest persisted step timestamp when the caller cannot supply
-    // a precise value.
     durationMs:
       typeof input.durationMs === 'number' && Number.isFinite(input.durationMs)
         ? Math.max(0, Math.trunc(input.durationMs))
-        : session.createdAt
-          ? Math.max(
-              0,
-              finalizedAt.getTime() - new Date(session.createdAt).getTime(),
-            )
-          : null,
+        : derivedDurationMs,
     error: input.error ? { message: input.error } : undefined,
   });
 

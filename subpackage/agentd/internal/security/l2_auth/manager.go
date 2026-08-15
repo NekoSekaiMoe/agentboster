@@ -39,6 +39,10 @@ var commandReviewRiskPatterns = []*regexp.Regexp{
 }
 
 // L2AuthEntry represents a cached authorization decision.
+//
+// TaskID/RunID remember which pending task opened this entry, so expiry
+// audits can attribute the expiry to the exact task/run instead of
+// guessing from the session (a session can have several pending tasks).
 type L2AuthEntry struct {
 	SessionID string
 	Pattern   string
@@ -46,6 +50,8 @@ type L2AuthEntry struct {
 	Action    string
 	ExpiresAt time.Time
 	CreatedAt time.Time
+	TaskID    string
+	RunID     string
 }
 
 // L2AuthManager manages L2 cache (local fast path).
@@ -172,7 +178,7 @@ func (m *L2AuthManager) Authorize(pattern string, duration string) error {
 		SandboxID:     "unknown",
 		PolicyVersion: PolicyVersion,
 		UserType:      usertype.Unknown,
-	}, pattern, duration, ActionPass)
+	}, pattern, duration, ActionPass, "", "")
 }
 
 func (m *L2AuthManager) AuthorizeTask(taskID, pattern, duration string) error {
@@ -182,6 +188,7 @@ func (m *L2AuthManager) AuthorizeTask(taskID, pattern, duration string) error {
 func (m *L2AuthManager) authorizePending(taskID, pattern, duration, action string) error {
 	m.mu.RLock()
 	cacheKey, ok := m.pending[taskID]
+	runID := m.pendingRunIDs[taskID]
 	m.mu.RUnlock()
 	if !ok {
 		cacheKey = CacheKey{
@@ -194,10 +201,10 @@ func (m *L2AuthManager) authorizePending(taskID, pattern, duration, action strin
 			UserType:      usertype.Unknown,
 		}
 	}
-	return m.authorizeWithKey(cacheKey, pattern, duration, action)
+	return m.authorizeWithKey(cacheKey, pattern, duration, action, taskID, runID)
 }
 
-func (m *L2AuthManager) authorizeWithKey(cacheKey CacheKey, pattern string, duration string, action string) error {
+func (m *L2AuthManager) authorizeWithKey(cacheKey CacheKey, pattern string, duration string, action string, taskID, runID string) error {
 	if duration == "once" {
 		slog.Info("L2 decision once (no cache write)", "pattern", pattern, "action", action)
 		return nil
@@ -225,6 +232,8 @@ func (m *L2AuthManager) authorizeWithKey(cacheKey CacheKey, pattern string, dura
 		Action:    action,
 		ExpiresAt: expiresAt,
 		CreatedAt: time.Now(),
+		TaskID:    taskID,
+		RunID:     runID,
 	}
 	m.entries[key] = entry
 
@@ -233,6 +242,7 @@ func (m *L2AuthManager) authorizeWithKey(cacheKey CacheKey, pattern string, dura
 		"cache_key", key,
 		"action", action,
 		"expires", expiresAt,
+		"task_id", taskID,
 	)
 	return nil
 }
@@ -252,7 +262,7 @@ func (m *L2AuthManager) Reject(pattern string, duration string) error {
 		SandboxID:     "unknown",
 		PolicyVersion: PolicyVersion,
 		UserType:      usertype.Unknown,
-	}, pattern, duration, ActionReject)
+	}, pattern, duration, ActionReject, "", "")
 }
 
 func (m *L2AuthManager) RejectTask(taskID, pattern, duration string) error {
@@ -339,7 +349,7 @@ func (m *L2AuthManager) ExpireStale() []ExpiredEntry {
 				action:  entry.Action,
 				expires: entry.ExpiresAt,
 			}
-			if taskID, runID := m.runIDForSessionLocked(entry.SessionID); runID != "" {
+			if taskID, runID := m.runIDForSessionLocked(entry); runID != "" {
 				audit.log = &clawless.ReviewLog{
 					TaskID:         taskID,
 					SessionID:      entry.SessionID,
@@ -367,41 +377,80 @@ func (m *L2AuthManager) ExpireStale() []ExpiredEntry {
 	return expired
 }
 
-// runIDForSessionLocked looks up a run id captured for a pending L2 decision
-// in the given session. Caller must hold m.mu.
-func (m *L2AuthManager) runIDForSessionLocked(sessionID string) (taskID, runID string) {
+// runIDForSessionLocked resolves (taskID, runID) for the expiry audit of an
+// entry created in the given session. Precise association first: entries
+// written via authorizePending carry the TaskID/RunID of the pending task
+// that opened them. Only legacy entries without that record fall back to
+// scanning the session's pending tasks (first match — ambiguous when a
+// session has multiple pending tasks, hence the Warn). Caller must hold m.mu.
+func (m *L2AuthManager) runIDForSessionLocked(entry *L2AuthEntry) (taskID, runID string) {
+	if entry == nil {
+		return "", ""
+	}
+	if entry.TaskID != "" {
+		if entry.RunID != "" {
+			return entry.TaskID, entry.RunID
+		}
+		// Task recorded but no run id captured (task had none). Fall through
+		// to the session scan rather than attributing a wrong run: the
+		// audit will carry whatever the scan finds, or none at all.
+		slog.Warn("L2 entry has task_id without run_id, falling back to session scan",
+			"task_id", entry.TaskID,
+			"session_id", entry.SessionID,
+		)
+	}
+	sessionID := entry.SessionID
+	matched := 0
 	for tid, cacheKey := range m.pending {
 		if cacheKey.SessionID != sessionID {
 			continue
 		}
 		if rid, ok := m.pendingRunIDs[tid]; ok && rid != "" {
-			return tid, rid
+			matched++
+			if taskID == "" && runID == "" {
+				taskID, runID = tid, rid
+			}
 		}
 	}
-	return "", ""
+	if matched > 1 {
+		slog.Warn("L2 expiry audit: multiple pending tasks share the session, attribution may be wrong",
+			"session_id", sessionID,
+			"pending_matches", matched,
+			"chosen_task_id", taskID,
+		)
+	}
+	return taskID, runID
 }
 
-// writeExpiredAudits submits expiry audit records: canonical review logs
-// when both a log and client are available, otherwise a structured warn so
-// the expiry leaves a trace even without a correlatable run id.
+// writeExpiredAudits submits expiry audit records. All entries that
+// produced a canonical review log are sent in ONE client.WriteReviewLogs
+// batch under a single timeout context (previously one HTTP call per
+// entry, which serialised the cleanup loop on N round-trips). Entries
+// without a log (no correlatable run id) or without a client still fall
+// back to the structured slog.Warn so the expiry is never silent.
 func (m *L2AuthManager) writeExpiredAudits(client *clawless.Client, audits []expiredAudit) {
+	batch := make([]clawless.ReviewLog, 0, len(audits))
 	for _, a := range audits {
-		if a.log != nil && client != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if err := client.WriteReviewLogs(ctx, []clawless.ReviewLog{*a.log}); err != nil {
-				slog.Warn("failed to write L2 expiry review log",
-					"session_id", a.session, "pattern", a.pattern, "error", err)
-			}
-			cancel()
-			continue
+		if a.log != nil {
+			batch = append(batch, *a.log)
+		} else {
+			slog.Warn("L2 authorization expired without audit trace",
+				"user_id", a.userID,
+				"session_id", a.session,
+				"reason", fmt.Sprintf("L2 authorization expired (action=%s, expires_at=%s); no run_id available for canonical review log", a.action, a.expires.Format(time.RFC3339)),
+				"pattern", a.pattern,
+				"action", a.action,
+			)
 		}
-		slog.Warn("L2 authorization expired without audit trace",
-			"user_id", a.userID,
-			"session_id", a.session,
-			"reason", fmt.Sprintf("L2 authorization expired (action=%s, expires_at=%s); no run_id available for canonical review log", a.action, a.expires.Format(time.RFC3339)),
-			"pattern", a.pattern,
-			"action", a.action,
-		)
+	}
+	if client == nil || len(batch) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := client.WriteReviewLogs(ctx, batch); err != nil {
+		slog.Warn("failed to write L2 expiry review logs",
+			"batch_size", len(batch), "error", err)
 	}
 }
 

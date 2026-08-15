@@ -77,6 +77,10 @@ export function normalizeTraceCallback(
   }
   const taskId = stringValue(body.task_id ?? body.taskId);
   const sessionId = stringValue(body.session_id ?? body.sessionId);
+  // `sequence` in the wire body is deliberately ignored: the server assigns
+  // the canonical ordering key itself via allocateSequence() inside the
+  // ingest transaction, so a client-supplied sequence can never collide
+  // with or reorder server-allocated records.
   const metadata =
     body.metadata && typeof body.metadata === 'object'
       ? { ...(body.metadata as Record<string, unknown>) }

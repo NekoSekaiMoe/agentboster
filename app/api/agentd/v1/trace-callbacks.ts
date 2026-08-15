@@ -32,34 +32,45 @@ function isValidType(type: string, allowed: 'review' | 'tool'): boolean {
 
 /**
  * Normalize a request body into validated span callbacks for one log family
- * (`review` or `tool`). Returns a 400 outcome on any invalid item.
+ * (`review` or `tool`). Invalid ITEMS are skipped (not batch-fatal): the
+ * Go client already pre-filters malformed entries, but a mid-deploy mixed
+ * batch must not lose its valid records. The response carries the skipped
+ * item indices so senders can inspect what was dropped. An empty result
+ * (everything skipped) is still an error — there is nothing to ingest.
  */
 export function normalizeTraceCallbackBatch(
   body: unknown,
   allowed: 'review' | 'tool',
-): { callbacks: NormalizedTraceCallback[] } | { error: string } {
+):
+  | { callbacks: NormalizedTraceCallback[]; skippedIndices: number[] }
+  | { error: string } {
   const items = Array.isArray(body) ? body : [body];
   if (items.length > TRACE_CALLBACK_BATCH_MAX) {
     return { error: 'Callback batch exceeds the allowed size' };
   }
   const callbacks: NormalizedTraceCallback[] = [];
-  for (const item of items) {
-    const normalized = normalizeTraceCallback(item);
+  const skippedIndices: number[] = [];
+  for (let index = 0; index < items.length; index++) {
+    const normalized = normalizeTraceCallback(items[index]);
     if (
       !normalized ||
       normalized.kind !== 'span' ||
       !isValidType(normalized.envelope.type, allowed)
     ) {
-      return {
-        error:
-          allowed === 'review'
-            ? 'Invalid canonical review callback'
-            : 'Invalid canonical tool callback',
-      };
+      skippedIndices.push(index);
+      continue;
     }
     callbacks.push(normalized);
   }
-  return { callbacks };
+  if (callbacks.length === 0) {
+    return {
+      error:
+        allowed === 'review'
+          ? 'Invalid canonical review callback'
+          : 'Invalid canonical tool callback',
+    };
+  }
+  return { callbacks, skippedIndices };
 }
 
 /**

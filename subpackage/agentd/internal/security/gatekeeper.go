@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
@@ -349,8 +350,62 @@ type OutputAuditContext struct {
 	RunID          string
 }
 
+// auditCommandSanitizeLimit is the byte cap for the Command field
+// persisted in review logs. AuditOutput stores the raw LLM output there
+// (metadata.command → audit CSV / trace store), which for ordinary model
+// responses is kilobytes of prose — and occasionally leaked secrets the
+// L0/L1 checks did not catch. The persisted copy is capped and normalized;
+// the security checks themselves still run on the untouched output (see
+// AuditOutput).
+const auditCommandSanitizeLimit = 256
+
+// sanitizeAuditCommand normalizes a command/output for persistence in the
+// audit trail:
+//   - control characters (except tab) are dropped; tabs/newlines become
+//     single spaces so CSV cells and log scanners cannot be smuggled
+//     line-broken payloads
+//   - the result is UTF-8-safely capped at auditCommandSanitizeLimit bytes
+//     with a trailing "…[truncated N bytes]" marker when truncation
+//     occurred (N = omitted byte count, deterministic for identical input)
+//
+// The function is pure and deterministic: identical inputs always produce
+// identical outputs, which keeps BuildReviewIdempotencyKey stable across
+// retries (the key is derived from the sanitized Command).
+func sanitizeAuditCommand(s string) string {
+	// 1) Normalize whitespace/control characters.
+	var b strings.Builder
+	b.Grow(min(len(s), auditCommandSanitizeLimit+32))
+	for _, r := range s {
+		switch {
+		case r == '\t' || r == '\n' || r == '\r':
+			b.WriteByte(' ')
+		case r < 0x20 || r == 0x7f:
+			// Drop other control characters (ESC sequences, NULs, ...).
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	normalized := b.String()
+
+	// 2) Byte cap with rune-boundary safety (never split a multi-byte
+	//    sequence) and a deterministic truncation marker.
+	if len(normalized) <= auditCommandSanitizeLimit {
+		return normalized
+	}
+	cut := auditCommandSanitizeLimit
+	for cut > 0 && !utf8.RuneStart(normalized[cut]) {
+		cut--
+	}
+	return normalized[:cut] + fmt.Sprintf("…[truncated %d bytes]", len(normalized)-cut)
+}
+
 // AuditOutput validates LLM output content through the security pipeline.
 // L0 checks for known leak patterns, L1 scores for anomalous output.
+// The L0/L1 checks always run on the raw output so sanitization cannot
+// weaken security detection; only the Command copy persisted into review
+// logs (metadata.command → audit CSV / trace store) is capped and
+// normalized via sanitizeAuditCommand.
 func (g *Gatekeeper) AuditOutput(ctx context.Context, auditCtx OutputAuditContext) (*ReviewResult, []clawless.ReviewLog) {
 	output := auditCtx.Output
 	taskID := auditCtx.TaskID
@@ -360,7 +415,11 @@ func (g *Gatekeeper) AuditOutput(ctx context.Context, auditCtx OutputAuditContex
 		TaskID:    taskID,
 		SessionID: sessionID,
 		RunID:     runID,
-		Command:   output,
+		// Persist the sanitized copy — the raw LLM output can be huge and
+		// may contain secrets; review-log consumers only need a bounded,
+		// single-line preview. Deterministic so idempotency keys derived
+		// from Command stay stable.
+		Command: sanitizeAuditCommand(output),
 	}
 	logs := make([]clawless.ReviewLog, 0, 2)
 

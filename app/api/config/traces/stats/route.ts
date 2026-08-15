@@ -8,21 +8,38 @@ export const dynamic = 'force-dynamic';
 
 const logger = createLogger('api.config.trace-stats');
 
-/** Module-level short cache; acceptable to be per-instance. */
+/** Module-level short cache; acceptable to be per-instance. Writes evict
+ *  expired entries first and enforce a size cap so the map cannot grow
+ *  unboundedly across (userId × days) key combinations. */
 const STATS_CACHE_TTL_MS = 30_000;
+const STATS_CACHE_MAX_ENTRIES = 128;
 const statsCache = new Map<
   string,
   { at: number; value: Awaited<ReturnType<typeof getCanonicalTraceStats>> }
 >();
 
+function evictExpiredStatsCache(now: number) {
+  for (const [key, entry] of statsCache) {
+    if (now - entry.at >= STATS_CACHE_TTL_MS) statsCache.delete(key);
+  }
+}
+
 async function getStatsCached(userId: string | undefined, days: number) {
   const key = `${userId ?? '*'}:${days}`;
+  const now = Date.now();
   const cached = statsCache.get(key);
-  if (cached && Date.now() - cached.at < STATS_CACHE_TTL_MS) {
+  if (cached && now - cached.at < STATS_CACHE_TTL_MS) {
     return cached.value;
   }
   const value = await getCanonicalTraceStats({ userId, days });
-  statsCache.set(key, { at: Date.now(), value });
+  evictExpiredStatsCache(now);
+  while (statsCache.size >= STATS_CACHE_MAX_ENTRIES) {
+    // Drop the oldest entry (first insertion-order key).
+    const oldest = statsCache.keys().next().value;
+    if (oldest === undefined) break;
+    statsCache.delete(oldest);
+  }
+  statsCache.set(key, { at: now, value });
   return value;
 }
 

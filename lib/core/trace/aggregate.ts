@@ -378,22 +378,21 @@ export function buildTraceEvents(rows: TraceRows): TraceEvent[] {
     ...buildReviewEvents(rows.traceId, rows.reviews ?? []),
     ...(rows.events ?? []),
   ].sort((left, right) => {
-    if (left.sequence !== undefined && right.sequence !== undefined) {
-      const sequenceDiff = left.sequence - right.sequence;
-      if (sequenceDiff !== 0) return sequenceDiff;
-    }
-    if (
-      left.sequence !== undefined &&
-      right.sequence !== undefined &&
-      left.sequence === right.sequence
-    ) {
-      // Identical sequence keys: stable id tiebreak.
-      return left.id.localeCompare(right.id);
-    }
-    // Missing sequence on either side (legacy rows): startedAt ordering,
-    // then id for stability.
+    // Global lexicographic order: (startedAt, sequence, id).
+    // A single consistent key ordering keeps the comparator transitive even
+    // when canonical rows (with sequence) mix with legacy rows (without).
+    // The previous hybrid ("sequence diff when both sides have one, else
+    // startedAt") violated transitivity: A(seq=1, late), B(no seq, mid),
+    // C(seq=2, early) yielded C < B < A while A < C.
+    // Canonical records that share a startedAt are refined by sequence
+    // (missing sequence sorts last: +Infinity), then id for determinism.
     const timeDiff = left.startedAt.localeCompare(right.startedAt);
     if (timeDiff !== 0) return timeDiff;
+    const leftSequence = left.sequence ?? Number.POSITIVE_INFINITY;
+    const rightSequence = right.sequence ?? Number.POSITIVE_INFINITY;
+    if (leftSequence !== rightSequence) {
+      return leftSequence < rightSequence ? -1 : 1;
+    }
     return left.id.localeCompare(right.id);
   });
 }

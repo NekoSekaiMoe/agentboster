@@ -19,14 +19,34 @@ export interface TraceCleanupResult {
 
 /**
  * Delete canonical trace data older than the retention window, in one
- * transaction: select the expired runs first, then delete their child rows
+ * transaction: select the expired runs first (locking the run rows with
+ * FOR UPDATE so a concurrent ingest allocating a sequence on the same run
+ * serializes behind this transaction), then delete their child rows
  * (trace_events, trace_spans) by trace_id, then the runs themselves. Child
  * rows are removed before runs because canonical tables deliberately avoid
  * hard foreign keys to keep callback ingestion resilient during deploys.
  *
+ * Without the row lock there is a race window: an ingest that commits a new
+ * span between the SELECT and the DELETE would either orphan that span or
+ * have it deleted as a side effect of the by-trace_id delete even though it
+ * was brand new. FOR UPDATE closes the window on the run row, which is the
+ * row every ingest transaction updates via allocateSequence().
+ *
  * The db (or transaction) handle is injectable so callers such as the
  * cleanup script can reuse this against their own connection.
  */
+/**
+ * Delete-result row count across drivers: node-postgres reports
+ * `rowCount`, PGlite reports `affectedRows` (its result type lacks
+ * `rowCount` entirely, which used to make every cleanup count read 0).
+ */
+function deletedCount(result: {
+  rowCount?: number;
+  affectedRows?: number;
+}): number | undefined {
+  return result.rowCount ?? result.affectedRows ?? undefined;
+}
+
 export async function cleanupExpiredTraces(
   dbOrTx: TraceDb | TraceTx,
   retentionDays: number = DEFAULT_TRACE_RETENTION_DAYS,
@@ -39,7 +59,8 @@ export async function cleanupExpiredTraces(
   const expiredRuns = await dbOrTx
     .select({ traceId: traceRuns.traceId })
     .from(traceRuns)
-    .where(lt(traceRuns.startedAt, cutoff));
+    .where(lt(traceRuns.startedAt, cutoff))
+    .for('update');
   const traceIds = expiredRuns.map((run) => run.traceId);
   if (traceIds.length === 0) return { events: 0, spans: 0, runs: 0 };
 
@@ -53,9 +74,9 @@ export async function cleanupExpiredTraces(
     .delete(traceRuns)
     .where(inArray(traceRuns.traceId, traceIds));
   return {
-    events: events.rowCount ?? 0,
-    spans: spans.rowCount ?? 0,
-    runs: runs.rowCount ?? 0,
+    events: deletedCount(events) ?? 0,
+    spans: deletedCount(spans) ?? 0,
+    runs: deletedCount(runs) ?? 0,
   };
 }
 

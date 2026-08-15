@@ -12,8 +12,16 @@
 // Records violating the required field for their kind are rejected
 // (null), so the types below mark those fields required per variant.
 // `trace_id` and `idempotency_key` are required on every record.
+//
+// `sequence` is intentionally NOT part of the wire contract: the server
+// allocates the canonical ordering key itself (allocateSequence in
+// lib/core/trace/dal.ts) inside the ingest transaction, and
+// normalizeTraceCallback ignores any client-supplied sequence field.
 
+// Source: lib/core/trace/protocol.ts:3
 export type TraceCallbackKind = 'run' | 'span' | 'event';
+
+// Source: lib/core/trace/dal.ts:20
 export type TraceStatus =
   | 'pending'
   | 'running'
@@ -24,10 +32,11 @@ export type TraceStatus =
   | 'stopped';
 
 /** Fields shared by every canonical callback record. */
+// Source: lib/core/trace/dal.ts:29 (TraceEnvelopeBase)
+// Source: lib/core/trace/protocol.ts:28 (normalizeTraceCallback — ignored fields omitted)
 export interface TraceCallbackBase {
   trace_id: string;
   parent_span_id?: string;
-  sequence?: number;
   source: string;
   type: string;
   status?: TraceStatus | string;
@@ -46,18 +55,24 @@ export interface TraceCallbackBase {
 }
 
 /** A `run` record: top-level trace run. Must carry its own `span_id`. */
+// Source: lib/core/trace/dal.ts:53 (TraceRunInput)
+// Source: lib/core/trace/protocol.ts:74-76 (run records require span_id)
 export interface TraceRunCallback extends TraceCallbackBase {
   record_kind: 'run';
   span_id: string;
 }
 
 /** A `span` record: model step, tool call, or security review. */
+// Source: lib/core/trace/dal.ts:58 (TraceSpanInput)
+// Source: lib/core/trace/protocol.ts:67-76 (span records: span_id optional)
 export interface TraceSpanCallback extends TraceCallbackBase {
   record_kind: 'span';
   span_id?: string;
 }
 
 /** An `event` record: append-only state change inside a span. Must carry `event_id`. */
+// Source: lib/core/trace/dal.ts:59 (TraceEventInput)
+// Source: lib/core/trace/protocol.ts:67-73 (event records require event_id)
 export interface TraceEventCallback extends TraceCallbackBase {
   record_kind: 'event';
   event_id: string;
@@ -69,6 +84,7 @@ export interface TraceEventCallback extends TraceCallbackBase {
  * Discriminated on `record_kind`; the kind determines which identity
  * fields are required (see the variant docs above).
  */
+// Source: lib/core/trace/protocol.ts:5-11 (NormalizedTraceCallback kind/envelope union)
 export type TraceCallbackEnvelope =
   | TraceRunCallback
   | TraceSpanCallback

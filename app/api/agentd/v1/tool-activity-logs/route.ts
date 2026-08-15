@@ -10,8 +10,8 @@ const logger = createLogger('api.agentd.tool-activity-logs');
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const normalized = normalizeTraceCallbackBatch(body, 'tool');
+    const requestBody = await request.json();
+    const normalized = normalizeTraceCallbackBatch(requestBody, 'tool');
     if ('error' in normalized) {
       return Response.json(
         { success: false, error: normalized.error },
@@ -25,7 +25,11 @@ export async function POST(request: Request) {
       });
       return Response.json(outcome.body, { status: outcome.status });
     }
-    return Response.json(outcome.body, { status: outcome.status });
+    const body =
+      normalized.skippedIndices.length > 0
+        ? { ...outcome.body, skippedIndices: normalized.skippedIndices }
+        : outcome.body;
+    return Response.json(body, { status: outcome.status });
   } catch (error) {
     logger.error('tool activity log write failed', {
       error: error instanceof Error ? error.message : String(error),

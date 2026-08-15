@@ -4,7 +4,7 @@ import {
   getSessionByWorkflowRunId,
   updateSession,
 } from '@/lib/core/db/chat';
-import { agentdNodes } from '@/lib/core/db/schema';
+import { agentdNodes, sessions } from '@/lib/core/db/schema';
 import { ensureTraceRun } from '@/lib/core/trace/dal';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
 import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
@@ -17,7 +17,7 @@ import type {
   ToolApprovalPayload,
 } from '@/types/workflow';
 import type { ModelMessage } from 'ai';
-import { and, eq, gte } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import { getRun, start } from 'workflow/api';
 import { ACTIVE_RUN_STATUSES } from './config';
 import {
@@ -329,46 +329,77 @@ export async function startWorkflow(input: {
 
   const sessionBeforeUpdate = await getSession(input.sessionId);
   // Trace ingestion is isolated: a canonical-trace write failure must
-  // never block the run from actually starting (updateSession /
-  // patchWorkflowRuntime below are the load-bearing writes).
+  // never block the run from actually starting (the session /
+  // patchWorkflowRuntime writes below are the load-bearing writes), and a
+  // hung DB must not either — hence the bounded race. We use only the
+  // global `setTimeout` (no node:* timers) because this file is part of
+  // the workflow bundle (see AGENTS.md node:* rules).
+  const TRACE_WRITE_TIMEOUT_MS = 5_000;
   try {
-    await ensureTraceRun({
-      traceId: run.runId,
-      spanId: `run:${run.runId}`,
-      source: input.source.type,
-      type: 'run',
-      status: 'running',
-      userId:
-        'userId' in input.source
-          ? (input.source.userId ?? sessionBeforeUpdate?.userId)
-          : sessionBeforeUpdate?.userId,
-      sessionId: input.sessionId,
-      workspaceId: sessionBeforeUpdate?.workspaceId,
-      input: { model: input.requestModel ?? sessionBeforeUpdate?.model },
-      metadata: { producer: 'workflow.dispatch' },
-      idempotencyKey: `run:${run.runId}`,
-    });
+    await Promise.race([
+      ensureTraceRun({
+        traceId: run.runId,
+        spanId: `run:${run.runId}`,
+        source: input.source.type,
+        type: 'run',
+        status: 'running',
+        userId:
+          'userId' in input.source
+            ? (input.source.userId ?? sessionBeforeUpdate?.userId)
+            : sessionBeforeUpdate?.userId,
+        sessionId: input.sessionId,
+        workspaceId: sessionBeforeUpdate?.workspaceId,
+        input: { model: input.requestModel ?? sessionBeforeUpdate?.model },
+        metadata: { producer: 'workflow.dispatch' },
+        idempotencyKey: `run:${run.runId}`,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `trace run write timed out after ${TRACE_WRITE_TIMEOUT_MS}ms`,
+              ),
+            ),
+          TRACE_WRITE_TIMEOUT_MS,
+        ),
+      ),
+    ]);
   } catch (err) {
     logger.warn('startWorkflow:trace_run_write_failed', {
       sessionId: input.sessionId,
       runId: run.runId,
       error: err instanceof Error ? err.message : String(err),
     });
+    // Continue on both failure and timeout — the trace write is
+    // best-effort and idempotent (idempotencyKey above), so a later
+    // retry by any observer is safe.
   }
 
-  await updateSession(input.sessionId, {
-    workflowRunId: run.runId,
-    status: 'active',
-    metadata: {
-      // Merge with existing metadata — updateSession overwrites the whole
-      // jsonb column, so a bare `{ source }` would wipe `locale` (set via
-      // /lang) and other fields (contextUsage, latestApproval, …). This
-      // was the root cause of IM users' language resetting to English
-      // after every message (which calls startWorkflow).
-      ...(sessionBeforeUpdate ?? (await getSession(input.sessionId)))?.metadata,
-      source: input.source,
-    },
-  });
+  // Session write: DB-side atomic jsonb merge. We only patch the keys
+  // this path owns (metadata.source) — NOT the whole metadata column —
+  // because `updateSession`-style `set({ metadata })` replaces the
+  // entire jsonb and has a read-modify-write race against concurrent
+  // writers (workflow contextUsage, approval state, AGENTS.md
+  // persistence, /lang locale, …). Historically a bare `{ source }`
+  // overwrite wiped `locale` and reset IM users' language to English on
+  // every message; merging server-side via
+  // `coalesce(metadata,'{}'::jsonb) || '<patch>'::jsonb` keeps every
+  // untouched key (locale, contextUsage, latestApproval, …) regardless
+  // of what was written between our `getSession` read and this UPDATE.
+  // The right-hand side wins on key conflicts, which is exactly the
+  // intent: our `source` reflects the newest message origin.
+  // `updateSessionMetadataKey` (chat.ts) is not reusable here because it
+  // only supports string/boolean/null values and `source` is an object.
+  await db
+    .update(sessions)
+    .set({
+      workflowRunId: run.runId,
+      status: 'active',
+      metadata: sql`coalesce(${sessions.metadata}, '{}'::jsonb) || ${JSON.stringify({ source: input.source })}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(eq(sessions.id, input.sessionId));
   logger.info('startWorkflow:session_updated');
 
   await patchWorkflowRuntime(input.sessionId, {
@@ -495,6 +526,10 @@ export async function pauseWorkflow(runId: string): Promise<void> {
   await updateSession(session.id, {
     workflowRunId: null,
     status: 'stopped',
+    // No metadata here on purpose: this pause path must not touch the
+    // jsonb column at all — updateSession replaces it wholesale. Any
+    // metadata change belongs in a targeted jsonb merge (see the
+    // startWorkflow session write above).
   });
   await patchWorkflowRuntime(session.id, {
     phase: 'cancelled',

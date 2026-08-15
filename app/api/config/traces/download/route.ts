@@ -9,9 +9,11 @@ export const dynamic = 'force-dynamic';
 const logger = createLogger('api.config.trace-download');
 
 const DEFAULT_DOWNLOAD_LIMIT = 250;
-// listTraces clamps every limit to 250 (compactLimit) — anything larger is
-// silently truncated there, so we cap the accepted request value to match.
+// listTraces clamps every limit to 250 (compactLimit). The candidate pool
+// is always fetched at that max width (filter-before-truncate); the
+// requested limit only caps the final filtered result.
 const MAX_DOWNLOAD_LIMIT = 250;
+const DOWNLOAD_CANDIDATE_LIMIT = 250;
 
 function parseLimit(value: string | null): number {
   const parsed = Number(value ?? DEFAULT_DOWNLOAD_LIMIT);
@@ -70,20 +72,26 @@ export async function GET(request: Request) {
     const traces = (
       await listTraces(
         { userId: access.isAdmin ? undefined : access.session.userId },
-        { limit, search },
+        // Fetch the widest candidate pool the DAL allows, filter, and only
+        // then apply the requested limit — filter-before-truncate, so
+        // status/sessionId/time filters are not applied to a pre-truncated
+        // slice (older matching traces would otherwise be lost).
+        { limit: DOWNLOAD_CANDIDATE_LIMIT, search },
       )
-    ).filter((trace) => {
-      if (status && trace.status !== status) return false;
-      if (sessionId && trace.sessionId !== sessionId) return false;
-      if (
-        fromAt &&
-        (!trace.startedAt || trace.startedAt < fromAt.toISOString())
-      )
-        return false;
-      if (toAt && (!trace.startedAt || trace.startedAt > toAt.toISOString()))
-        return false;
-      return true;
-    });
+    )
+      .filter((trace) => {
+        if (status && trace.status !== status) return false;
+        if (sessionId && trace.sessionId !== sessionId) return false;
+        if (
+          fromAt &&
+          (!trace.startedAt || trace.startedAt < fromAt.toISOString())
+        )
+          return false;
+        if (toAt && (!trace.startedAt || trace.startedAt > toAt.toISOString()))
+          return false;
+        return true;
+      })
+      .slice(0, limit);
     const header =
       'Trace ID,Status,Started At,Completed At,Duration (ms),Models,Tools,Reviews,Failures,Tokens,Session ID,User ID';
     const rows = traces.map((trace) =>

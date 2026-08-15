@@ -659,9 +659,19 @@ export async function writeReviewLogs(
       const task = taskId ? await taskFor(taskId) : null;
       const decision = normalizeDecision(log.decision);
       const score = normalizeScore(log.score);
+      const idempotencyKey =
+        log.idempotencyKey ??
+        log.idempotency_key ??
+        `review:${taskId}:${log.level}:${decision}:${log.command}`;
       const span = await ingestTraceSpan({
         traceId,
-        spanId: `review:${taskId || 'unknown'}:${log.level}:${log.command}`,
+        // Same pattern as the tool path: taskId+level+command can repeat
+        // within one trace while the idempotency key differs (e.g. an
+        // 'allowed' and a 'denied' review of the same command), and
+        // `unique (trace_id, span_id)` would reject the second insert.
+        // The idempotency-key hash keeps spanId unique per record while
+        // staying stable across retries of the same record.
+        spanId: `review:${taskId || 'unknown'}:${log.level}:${log.command}:${shortHash(idempotencyKey)}`,
         // The real parent span is not knowable from a review callback
         // (there is no guaranteed `model:<trace>:<step>` row for it), so
         // the span attaches to the trace root instead of a fabricated parent.
@@ -687,10 +697,7 @@ export async function writeReviewLogs(
           reason: log.reason ?? null,
           command: log.command,
         },
-        idempotencyKey:
-          log.idempotencyKey ??
-          log.idempotency_key ??
-          `review:${taskId}:${log.level}:${decision}:${log.command}`,
+        idempotencyKey,
       });
       if (!span) {
         throw new Error(

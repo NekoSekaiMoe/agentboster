@@ -236,6 +236,52 @@ describe('agentd trace propagation', () => {
     );
   });
 
+  it('keeps both review rows when decision differs for the same task+level+command', async () => {
+    // The idempotency keys differ (decision is part of the key) but the
+    // old spanId `review:${taskId}:${level}:${command}` did not include
+    // the decision, so `unique (trace_id, span_id)` rejected the second
+    // row with a 23505 — onConflictDoNothing only arbitrates the
+    // idempotency-key index, not the span-id one.
+    const records = await writeReviewLogs([
+      {
+        run_id: 'run-review-dup',
+        task_id: taskId,
+        command: 'rm -rf /tmp/x',
+        level: 'L1',
+        score: 10,
+        decision: 'allowed',
+      },
+      {
+        run_id: 'run-review-dup',
+        task_id: taskId,
+        command: 'rm -rf /tmp/x',
+        level: 'L1',
+        score: 90,
+        decision: 'blocked',
+      },
+    ]);
+    expect(records).toHaveLength(2);
+
+    const rows = (
+      await harness.db.execute(
+        sql`SELECT "span_id", "status", "idempotency_key", "output"
+            FROM "trace_spans" WHERE "trace_id" = 'run-review-dup' AND "type" = 'review'`,
+      )
+    ).rows as Array<{
+      span_id: string;
+      status: string;
+      idempotency_key: string;
+      output: { decision?: string } | null;
+    }>;
+    expect(rows).toHaveLength(2);
+    // spanIds are now unique per record (decision disambiguates them).
+    expect(new Set(rows.map((row) => row.span_id)).size).toBe(2);
+    expect(new Set(rows.map((row) => row.idempotency_key)).size).toBe(2);
+    expect(new Set(rows.map((row) => row.output?.decision ?? null))).toEqual(
+      new Set(['allowed', 'blocked']),
+    );
+  });
+
   it('is idempotent when the same callback batch is replayed with the same idempotency keys', async () => {
     const toolBatch = [
       {

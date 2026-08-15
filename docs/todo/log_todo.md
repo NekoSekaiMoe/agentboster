@@ -109,11 +109,19 @@ structured payload columns.
 
 ## Recommended Sequence
 
-1. Review and stabilize `feat/unified-trace` without expanding its storage
-   scope.
-2. Merge it as the product-level baseline.
-3. Create a dedicated canonical Trace storage branch.
-4. Add schema and ingestion contract, then enable bounded dual-write.
-5. Backfill and compare old/new reads using production-shaped fixtures.
-6. Switch all read paths to the canonical store.
-7. Remove legacy Trace aggregation, fallback reads, and obsolete storage.
+All steps below have been executed on `refactor/db-storage`; they are kept
+as the historical playbook for this refactor.
+
+1. ✅ Reviewed and stabilized `feat/unified-trace` without expanding its
+   storage scope.
+2. ✅ Merged it as the product-level baseline.
+3. ✅ Created the dedicated canonical Trace storage branch
+   (`refactor/db-storage`).
+4. ✅ Added schema and ingestion contract (migration 0049); the bounded
+   dual-write window ran its course during backfill validation.
+5. ✅ Backfilled and compared old/new reads using production-shaped
+   fixtures (`scripts/backfill-traces.ts`, idempotent per idempotency key).
+6. ✅ Switched all read paths to the canonical store (Trace Explorer, audit
+   endpoints, stats, CSV exports).
+7. ✅ Removed legacy Trace aggregation, fallback reads, and obsolete storage
+   paths (see `refactor: retire legacy trace storage paths`).
