@@ -51,7 +51,7 @@ func newPartialServerSeq(t *testing.T, responses []partialResponse) *partialServ
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.status)
-		fmt.Fprint(w, resp.body)
+		_, _ = fmt.Fprint(w, resp.body)
 	}))
 	t.Cleanup(ps.srv.Close)
 	return ps

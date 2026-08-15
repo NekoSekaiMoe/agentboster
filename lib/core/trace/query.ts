@@ -253,6 +253,13 @@ async function loadCanonicalRows(
         startedAt: run.startedAt,
         completedAt: run.completedAt,
         durationMs: run.durationMs,
+        // Run-level identity so traces without any model/tool/review
+        // spans (events-only) still surface who/where in summaries,
+        // exports and filters (buildTraceSummary falls back to these).
+        sessionId: run.sessionId,
+        sessionTitle,
+        userId: run.userId,
+        agentId: run.agentId,
       },
       models,
       tools,

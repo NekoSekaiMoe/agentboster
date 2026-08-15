@@ -3,6 +3,8 @@ import { sql } from 'drizzle-orm';
 
 import { resetDb, setupPgLiteTestDb } from '@/lib/extra/test/pglite-harness';
 
+import { TRACE_TABLE_DDL } from '@/lib/core/trace/test-support';
+
 const DDL = [
   `CREATE TABLE "sessions" (
     "id" uuid PRIMARY KEY,
@@ -39,60 +41,7 @@ const DDL = [
     "created_at" timestamptz DEFAULT now() NOT NULL,
     "updated_at" timestamptz DEFAULT now() NOT NULL
   )`,
-  `CREATE TABLE "trace_runs" (
-    "trace_id" text PRIMARY KEY,
-    "span_id" text NOT NULL,
-    "parent_span_id" text,
-    "sequence" bigint DEFAULT 0 NOT NULL,
-    "source" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "next_sequence" bigint DEFAULT 0 NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    "updated_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
-  `CREATE TABLE "trace_spans" (
-    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-    "trace_id" text NOT NULL,
-    "span_id" text NOT NULL,
-    "parent_span_id" text,
-    "sequence" bigint NOT NULL,
-    "source" text NOT NULL,
-    "type" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    "updated_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "span_id"),
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
+  ...TRACE_TABLE_DDL,
 ];
 
 const harness = setupPgLiteTestDb(DDL);
@@ -310,12 +259,28 @@ describe('agentd trace propagation', () => {
     const firstReview = await writeReviewLogs(reviewBatch);
     expect(firstTool[0].idempotencyKey).toBeTruthy();
     expect(firstReview[0].idempotencyKey).toBeTruthy();
+    // Replays must not burn sequence slots: capture next_sequence right
+    // after the initial writes and assert it is unchanged after replay.
+    const [beforeReplay] = (
+      await harness.db.execute(
+        sql`SELECT "next_sequence" FROM "trace_runs" WHERE "trace_id" = 'run-web-1'`,
+      )
+    ).rows as Array<{ next_sequence: string | number }>;
 
     const replayTool = await writeToolActivityLogs(toolBatch);
     const replayReview = await writeReviewLogs(reviewBatch);
     // Replays return the same records, not new ones.
     expect(replayTool[0].id).toBe(firstTool[0].id);
     expect(replayReview[0].id).toBe(firstReview[0].id);
+
+    const [afterReplay] = (
+      await harness.db.execute(
+        sql`SELECT "next_sequence" FROM "trace_runs" WHERE "trace_id" = 'run-web-1'`,
+      )
+    ).rows as Array<{ next_sequence: string | number }>;
+    expect(String(afterReplay?.next_sequence)).toBe(
+      String(beforeReplay?.next_sequence),
+    );
 
     const rows = (
       await harness.db.execute(

@@ -34,11 +34,22 @@ type ReviewResult struct {
 	SessionID string
 	RunID     string
 	Command   string
-	Reason    string
+	// KeyCommand is the raw output used for idempotency-key derivation;
+	// Command keeps the sanitized/truncated copy for persistence.
+	KeyCommand string
+	Reason     string
 }
 
 // ReviewLog creates a ReviewLog from the review result.
 func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason string) clawless.ReviewLog {
+	// Derive the idempotency key from the raw KeyCommand when available —
+	// the sanitized Command is truncated, so distinct long outputs would
+	// otherwise collapse onto the same key. Fall back to Command for
+	// callers that never set KeyCommand.
+	keyCmd := r.KeyCommand
+	if keyCmd == "" {
+		keyCmd = r.Command
+	}
 	return clawless.ReviewLog{
 		TaskID:         r.TaskID,
 		SessionID:      r.SessionID,
@@ -48,7 +59,7 @@ func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason s
 		Score:          score,
 		Decision:       decision,
 		Reason:         reason,
-		IdempotencyKey: clawless.BuildReviewIdempotencyKey(r.TaskID, level, decision, r.Command),
+		IdempotencyKey: clawless.BuildReviewIdempotencyKey(r.TaskID, level, decision, keyCmd),
 	}
 }
 
@@ -196,6 +207,9 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 		SessionID: task.SessionID,
 		RunID:     task.RunID,
 		Command:   task.Command,
+		// task.Command is already the raw command (no sanitized copy), so
+		// the idempotency key derives from the same value that is persisted.
+		KeyCommand: task.Command,
 	}
 	logs := make([]clawless.ReviewLog, 0, 3)
 
@@ -420,6 +434,9 @@ func (g *Gatekeeper) AuditOutput(ctx context.Context, auditCtx OutputAuditContex
 		// single-line preview. Deterministic so idempotency keys derived
 		// from Command stay stable.
 		Command: sanitizeAuditCommand(output),
+		// KeyCommand keeps the raw output for idempotency-key derivation
+		// (Command is the sanitized/truncated persistence copy).
+		KeyCommand: output,
 	}
 	logs := make([]clawless.ReviewLog, 0, 2)
 
@@ -672,6 +689,8 @@ func (g *Gatekeeper) AuditBatch(ctx context.Context, sessionID, workDir, summary
 		results[i] = ReviewResult{
 			TaskID:  batchTaskID(sessionID, i),
 			Command: cmd,
+			// cmd is the raw command; same reasoning as Audit above.
+			KeyCommand: cmd,
 		}
 	}
 

@@ -53,7 +53,14 @@ export async function GET(request: Request) {
           taskId: row.taskId,
           traceId: row.traceId,
           userId: row.userId,
-          roles: [],
+          // Identity resolution on ingest stores the effective roles in
+          // metadata.resolvedRoles (receiver.ts); degrade to [] when absent
+          // or malformed instead of dropping them.
+          roles: Array.isArray(metadata.resolvedRoles)
+            ? metadata.resolvedRoles.filter(
+                (role): role is string => typeof role === 'string',
+              )
+            : [],
           command: typeof metadata.command === 'string' ? metadata.command : '',
           level:
             typeof metadata.level === 'string' ? metadata.level : 'unknown',

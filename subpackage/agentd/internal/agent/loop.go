@@ -251,7 +251,7 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 					l.agentCtx.Log().Warn("failed to write tool audit logs", "error", err)
 				}
 			} else {
-				l.agentCtx.Log().Warn("tool audit produced review logs but session has no run_id; output review records skipped",
+				l.agentCtx.Log().Warn("tool audit produced review logs but session has no run_id; tool review records skipped",
 					"session_id", l.agentCtx.SessionID, "log_count", len(auditLogs))
 			}
 		}
@@ -277,10 +277,15 @@ func stampReviewLogs(logs []clawless.ReviewLog, agentCtx *AgentContext) {
 	}
 
 	for i := range logs {
+		// Placeholder task id was baked into the idempotency key by the
+		// gatekeeper — clearing it must mark the key dirty so it gets
+		// rebuilt (when a real TaskID exists to backfill) or left for the
+		// receiver to reject, never kept stale.
+		taskIDChanged := false
 		if logs[i].TaskID == "00000000-0000-0000-0000-000000000000" {
 			logs[i].TaskID = ""
+			taskIDChanged = true
 		}
-		taskIDChanged := false
 		if logs[i].TaskID == "" && agentCtx.TaskID != "" {
 			logs[i].TaskID = agentCtx.TaskID
 			taskIDChanged = true

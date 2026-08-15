@@ -62,8 +62,8 @@ export function normalizeTraceCallback(
 
   const resolvedKind = kind ?? (type === 'event' ? 'event' : 'span');
   // Canonical records must carry their own identity: events need an
-  // event_id and runs need a span_id. Legacy auto-generated payloads keep
-  // the synthesized ids.
+  // event_id, and runs and spans need a span_id. Legacy auto-generated
+  // payloads keep the synthesized ids.
   if (hasCanonicalIdentity) {
     if (
       resolvedKind === 'event' &&
@@ -71,7 +71,10 @@ export function normalizeTraceCallback(
     ) {
       return null;
     }
-    if (resolvedKind === 'run' && !stringValue(body.span_id ?? body.spanId)) {
+    if (
+      (resolvedKind === 'run' || resolvedKind === 'span') &&
+      !stringValue(body.span_id ?? body.spanId)
+    ) {
       return null;
     }
   }

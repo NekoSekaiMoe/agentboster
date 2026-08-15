@@ -18,6 +18,24 @@ export interface TraceCleanupResult {
 }
 
 /**
+ * Delete-result row count across drivers: node-postgres reports
+ * `rowCount`, PGlite reports `affectedRows` (its result type lacks
+ * `rowCount` entirely, which used to make every cleanup count read 0).
+ */
+function deletedCount(result: {
+  rowCount?: number;
+  affectedRows?: number;
+}): number | undefined {
+  return result.rowCount ?? result.affectedRows ?? undefined;
+}
+
+/** Max expired runs deleted per transaction. Batching bounds the FOR UPDATE
+ * row-lock footprint and the delete volume so a long retention backlog
+ * doesn't hold locks (and tie up a connection) for the whole table; callers
+ * loop until a batch reports zero runs deleted. */
+export const TRACE_CLEANUP_BATCH_SIZE = 500;
+
+/**
  * Delete canonical trace data older than the retention window, in one
  * transaction: select the expired runs first (locking the run rows with
  * FOR UPDATE so a concurrent ingest allocating a sequence on the same run
@@ -32,21 +50,13 @@ export interface TraceCleanupResult {
  * was brand new. FOR UPDATE closes the window on the run row, which is the
  * row every ingest transaction updates via allocateSequence().
  *
+ * Only TRACE_CLEANUP_BATCH_SIZE runs are processed per call — loop until
+ * `runs === 0` to drain a large backlog (each iteration is its own
+ * transaction, so progress survives interruption).
+ *
  * The db (or transaction) handle is injectable so callers such as the
  * cleanup script can reuse this against their own connection.
  */
-/**
- * Delete-result row count across drivers: node-postgres reports
- * `rowCount`, PGlite reports `affectedRows` (its result type lacks
- * `rowCount` entirely, which used to make every cleanup count read 0).
- */
-function deletedCount(result: {
-  rowCount?: number;
-  affectedRows?: number;
-}): number | undefined {
-  return result.rowCount ?? result.affectedRows ?? undefined;
-}
-
 export async function cleanupExpiredTraces(
   dbOrTx: TraceDb | TraceTx,
   retentionDays: number = DEFAULT_TRACE_RETENTION_DAYS,
@@ -60,6 +70,8 @@ export async function cleanupExpiredTraces(
     .select({ traceId: traceRuns.traceId })
     .from(traceRuns)
     .where(lt(traceRuns.startedAt, cutoff))
+    .orderBy(traceRuns.startedAt)
+    .limit(TRACE_CLEANUP_BATCH_SIZE)
     .for('update');
   const traceIds = expiredRuns.map((run) => run.traceId);
   if (traceIds.length === 0) return { events: 0, spans: 0, runs: 0 };
@@ -80,14 +92,27 @@ export async function cleanupExpiredTraces(
   };
 }
 
-/** Back-compatible wrapper: runs the cleanup in a single transaction. */
+/** Back-compatible wrapper: runs the cleanup in batches of
+ * TRACE_CLEANUP_BATCH_SIZE until no expired runs remain, one transaction
+ * per batch. */
 export async function purgeExpiredTraces(
   retentionDays: number = DEFAULT_TRACE_RETENTION_DAYS,
 ): Promise<TraceCleanupResult> {
   try {
-    return await db.transaction((tx) =>
-      cleanupExpiredTraces(tx, retentionDays),
-    );
+    const totals: TraceCleanupResult = { events: 0, spans: 0, runs: 0 };
+    // Loop until a batch deletes no runs: cleanupExpiredTraces is capped at
+    // TRACE_CLEANUP_BATCH_SIZE runs per transaction, so a large retention
+    // backlog drains in bounded chunks instead of one giant lock window.
+    for (;;) {
+      const batch = await db.transaction((tx) =>
+        cleanupExpiredTraces(tx, retentionDays),
+      );
+      totals.events += batch.events;
+      totals.spans += batch.spans;
+      totals.runs += batch.runs;
+      if (batch.runs === 0) break;
+    }
+    return totals;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (

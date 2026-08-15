@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,7 +153,7 @@ func buildToolActivityLog(
 		Model:          model,
 		Step:           step,
 		ToolCallID:     call.ID,
-		IdempotencyKey: "tool:" + agentCtx.TaskID + ":" + call.ID,
+		IdempotencyKey: buildToolIdempotencyKey(agentCtx.TaskID, call.ID, step, startedAt),
 		ToolName:       call.Name,
 		Action:         action,
 		Target:         target,
@@ -165,6 +166,19 @@ func buildToolActivityLog(
 		StartedAt:      startedAt,
 		CompletedAt:    completedAt,
 	}
+}
+
+// buildToolIdempotencyKey derives the idempotency key for a tool
+// activity log. When callID is present it is unique per tool call, so
+// "task:call" is sufficient. When callID is empty (some providers omit
+// tool-call ids) every call in the task would collide on the same key
+// and the receiver would deduplicate them away — so fall back to
+// step + RFC3339Nano started-at, which is unique per invocation.
+func buildToolIdempotencyKey(taskID, callID string, step int, startedAt time.Time) string {
+	if callID != "" {
+		return "tool:" + taskID + ":" + callID
+	}
+	return "tool:" + taskID + ":" + strconv.Itoa(step) + ":" + startedAt.UTC().Format(time.RFC3339Nano)
 }
 
 func classifyToolActivity(toolName string, args json.RawMessage) (string, string, any) {

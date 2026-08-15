@@ -79,18 +79,33 @@ type SpanCandidate = {
   key: string;
   /** Stable sort key (timestamp + record id) for canonical sequencing. */
   sortAt: string;
+  /** Canonical trace id, computed once when the candidate is built. */
+  traceId: string;
   /** SQL columns for the trace_spans insert (order defined per type below). */
   kind: 'message-model' | 'message-tool' | 'tool-log' | 'review';
   message?: MessageRow;
   tool?: ToolRow;
   review?: ReviewRow;
-};
+}
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
 }
+
+function timestampOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : null;
+}
+
+function intOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** Backfill insert chunk size: messages/tools/reviews are processed in
+ *  bounded batches (stable (timestamp, id) ordering) instead of loading
+ *  every historical row into memory at once. */
+const BACKFILL_BATCH_SIZE = 5000;
 
 async function allocateSequence(
   query: ReturnType<typeof getRawQuery>,
@@ -103,7 +118,15 @@ async function allocateSequence(
      RETURNING next_sequence`,
     [traceId],
   );
-  return Number(rows[0]?.next_sequence ?? 1);
+  // A missing run row must NOT fall back to sequence 1 — spans for
+  // different traces would collide on low sequence numbers and corrupt
+  // canonical ordering. Fail loudly; the run insert phase above is
+  // responsible for every candidate's run existing.
+  const next = rows[0]?.next_sequence;
+  if (next === undefined || next === null) {
+    throw new Error(`allocateSequence: trace run ${traceId} does not exist`);
+  }
+  return Number(next);
 }
 
 async function spanExists(
@@ -120,22 +143,45 @@ async function spanExists(
   return rows.length > 0;
 }
 
+/**
+ * Keyset-paginated batch reader: the SQL must select `... WHERE
+ * ($1::text IS NULL OR (time_col, id_col) > ($1::timestamptz, $2::text))
+ * ORDER BY time_col, id_col LIMIT n`, and `cursorOf` renders each row's
+ * (timestamp, id) as `<timestamp>\u0000<id>` (split back into the two
+ * bind params below). Yields rows in stable chronological batches so the
+ * backfill never holds every legacy row in memory at once.
+ */
+async function* batchQuery<T>(
+  sqlText: string,
+  cursorOf: (row: T) => string,
+): AsyncGenerator<T> {
+  const query = getRawQuery();
+  let cursorTime: string | null = null;
+  let cursorId: string | null = null;
+  for (;;) {
+    const rows = await query<T>(sqlText, [cursorTime, cursorId]);
+    for (const row of rows) {
+      yield row;
+    }
+    if (rows.length < BACKFILL_BATCH_SIZE) return;
+    const last = cursorOf(rows[rows.length - 1]);
+    const separator = last.indexOf('\u0000');
+    cursorTime = last.slice(0, separator);
+    cursorId = last.slice(separator + 1);
+  }
+}
+
 async function insertSpan(
   query: ReturnType<typeof getRawQuery>,
   candidate: SpanCandidate,
   modelSpanByStep: Map<string, string>,
 ) {
-  const sequence = await allocateSequence(
-    query,
-    candidate.message?.trace_id ??
-      candidate.tool?.trace_id ??
-      candidate.review?.trace_id ??
-      '',
-  );
+  const sequence = await allocateSequence(query, candidate.traceId);
 
   if (candidate.kind === 'message-model' && candidate.message) {
     const message = candidate.message;
     const payload = record(message.payload);
+    const metadata = record(payload.metadata);
     await query(
       `INSERT INTO trace_spans
         (trace_id, span_id, parent_span_id, sequence, source, type, status,
@@ -145,19 +191,16 @@ async function insertSpan(
                $8, $9, $10, NULL, $11, $12, $13)
        ON CONFLICT (trace_id, idempotency_key) DO NOTHING`,
       [
-        message.trace_id,
-        `model:${message.trace_id}:${message.id}`,
+        candidate.traceId,
+        `model:${candidate.traceId}:${message.id}`,
         sequence,
-        payload.finishReason ? 'completed' : 'running',
+        // Match the run status derivation: without terminal evidence a
+        // historical span is 'unknown' (an inconclusive state), not
+        // 'running' (which would render as a live step forever).
+        payload.finishReason ? 'completed' : 'unknown',
         message.created_at,
-        payload.metadata && typeof payload.metadata === 'object'
-          ? ((payload.metadata as Record<string, unknown>).traceCompletedAt ??
-            null)
-          : null,
-        payload.metadata && typeof payload.metadata === 'object'
-          ? ((payload.metadata as Record<string, unknown>).traceDurationMs ??
-            null)
-          : null,
+        timestampOrNull(metadata.traceCompletedAt),
+        intOrNull(metadata.traceDurationMs),
         message.user_id,
         message.session_id,
         message.workspace_id,
@@ -175,6 +218,7 @@ async function insertSpan(
   if (candidate.kind === 'message-tool' && candidate.message) {
     const message = candidate.message;
     const payload = record(message.payload);
+    const metadata = record(payload.metadata);
     const toolName =
       typeof payload.toolName === 'string' ? payload.toolName : 'legacy-tool';
     const toolInput = payload.toolInput ?? payload.input ?? null;
@@ -184,7 +228,7 @@ async function insertSpan(
     // no model row — never a fabricated dangling id.
     const parentSpanId =
       message.step_number !== null
-        ? (modelSpanByStep.get(`${message.trace_id}:${message.step_number}`) ??
+        ? (modelSpanByStep.get(`${candidate.traceId}:${message.step_number}`) ??
           null)
         : null;
     await query(
@@ -196,20 +240,14 @@ async function insertSpan(
                $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (trace_id, idempotency_key) DO NOTHING`,
       [
-        message.trace_id,
-        `tool:${message.trace_id}:${message.id}`,
+        candidate.traceId,
+        `tool:${candidate.traceId}:${message.id}`,
         parentSpanId,
         sequence,
         payload.toolState === 'output-error' ? 'failed' : 'completed',
         message.created_at,
-        payload.metadata && typeof payload.metadata === 'object'
-          ? ((payload.metadata as Record<string, unknown>).traceCompletedAt ??
-            null)
-          : null,
-        payload.metadata && typeof payload.metadata === 'object'
-          ? ((payload.metadata as Record<string, unknown>).traceDurationMs ??
-            null)
-          : null,
+        timestampOrNull(metadata.traceCompletedAt),
+        intOrNull(metadata.traceDurationMs),
         message.user_id,
         message.session_id,
         message.workspace_id,
@@ -239,7 +277,7 @@ async function insertSpan(
                $8, $9, $10, $11, $12, $13, $14, $15, $16)
        ON CONFLICT (trace_id, idempotency_key) DO NOTHING`,
       [
-        tool.trace_id,
+        candidate.traceId,
         `tool:${tool.id}`,
         sequence,
         tool.success ? 'completed' : 'failed',
@@ -276,7 +314,7 @@ async function insertSpan(
                0, $6, $7, $8, $9, $10)
        ON CONFLICT (trace_id, idempotency_key) DO NOTHING`,
       [
-        review.trace_id,
+        candidate.traceId,
         `review:${review.id}`,
         sequence,
         review.decision.includes('blocked') ||
@@ -343,7 +381,7 @@ async function main() {
         (trace_id, span_id, sequence, source, status, started_at, user_id,
          session_id, workspace_id, idempotency_key, next_sequence)
        VALUES ($1, $2, 0, 'legacy-backfill', $3, $4, $5, $6, $7, $8, 0)
-       ON CONFLICT (trace_id, idempotency_key) DO NOTHING`,
+       ON CONFLICT (trace_id) DO NOTHING`,
       [
         run.trace_id,
         `run:${run.trace_id}`,
@@ -364,7 +402,21 @@ async function main() {
     runs += 1;
   }
 
-  const messages = await query<MessageRow>(
+  // Historical rows are processed in bounded batches keyed on the stable
+  // (timestamp, id) ordering — loading every legacy record at once would
+  // pin unbounded memory on large installs. Candidates accumulate per
+  // batch and are merged below; global chronological ordering within each
+  // trace is preserved because every batch shares the same key sort.
+  const messageCandidates: SpanCandidate[] = [];
+  const toolCandidates: SpanCandidate[] = [];
+  const reviewCandidates: SpanCandidate[] = [];
+
+  // Map (trace_id, step_number) → actual model span id, so tool rows parent
+  // to the real `model:${trace_id}:${message.id}` span id instead of the
+  // fabricated `model:${trace_id}:${step}` id that never exists.
+  const modelSpanByStep = new Map<string, string>();
+
+  for await (const message of batchQuery<MessageRow>(
     `SELECT m.id,
             m.payload->'metadata'->>'runId' AS trace_id,
             m.session_id::text AS session_id,
@@ -378,61 +430,73 @@ async function main() {
        JOIN sessions s ON s.id = m.session_id
       WHERE m.payload->'metadata'->>'runId' IS NOT NULL
         AND m.role IN ('assistant', 'tool')
-      ORDER BY m.created_at, m.id`,
-  );
-  const tools = await query<ToolRow>(
-    `SELECT id::text, trace_id, task_id::text, session_id::text, user_id,
-            agent_id, tool_name, action, target, arguments, result,
-            output_text, success, error, duration_ms,
-            started_at::text, completed_at::text
-       FROM agent_tool_activity_logs
-      WHERE trace_id IS NOT NULL
-      ORDER BY started_at, id`,
-  );
-  const reviews = await query<ReviewRow>(
-    `SELECT id::text, trace_id, task_id::text, user_id, level, decision,
-            score, command, reason, created_at::text
-       FROM agent_review_logs
-      WHERE trace_id IS NOT NULL
-      ORDER BY created_at, id`,
-  );
-
-  // Map (trace_id, step_number) → actual model span id, so tool rows parent
-  // to the real `model:${trace_id}:${message.id}` span id instead of the
-  // fabricated `model:${trace_id}:${step}` id that never exists.
-  const modelSpanByStep = new Map<string, string>();
-  for (const message of messages) {
+        AND ($1::text IS NULL OR (m.created_at, m.id) > ($1::timestamptz, $2::text))
+      ORDER BY m.created_at, m.id
+      LIMIT ${BACKFILL_BATCH_SIZE}`,
+    (row) => `${row.created_at}\u0000${row.id}`,
+  )) {
     if (message.role === 'assistant' && message.step_number !== null) {
       modelSpanByStep.set(
         `${message.trace_id}:${message.step_number}`,
         `model:${message.trace_id}:${message.id}`,
       );
     }
+    messageCandidates.push({
+      key: `backfill:${message.role === 'tool' ? 'tool' : 'model'}:${message.id}`,
+      sortAt: message.created_at,
+      traceId: message.trace_id,
+      kind:
+        message.role === 'tool' ? 'message-tool' : 'message-model',
+      message,
+    });
+  }
+
+  for await (const tool of batchQuery<ToolRow>(
+    `SELECT id::text, trace_id, task_id::text, session_id::text, user_id,
+            agent_id, tool_name, action, target, arguments, result,
+            output_text, success, error, duration_ms,
+            started_at::text, completed_at::text
+       FROM agent_tool_activity_logs
+      WHERE trace_id IS NOT NULL
+        AND ($1::text IS NULL OR (started_at, id) > ($1::timestamptz, $2::text))
+      ORDER BY started_at, id
+      LIMIT ${BACKFILL_BATCH_SIZE}`,
+    (row) => `${row.started_at}\u0000${row.id}`,
+  )) {
+    toolCandidates.push({
+      key: `backfill:tool:${tool.id}`,
+      sortAt: tool.started_at,
+      traceId: tool.trace_id,
+      kind: 'tool-log',
+      tool,
+    });
+  }
+
+  for await (const review of batchQuery<ReviewRow>(
+    `SELECT id::text, trace_id, task_id::text, user_id, level, decision,
+            score, command, reason, created_at::text
+       FROM agent_review_logs
+      WHERE trace_id IS NOT NULL
+        AND ($1::text IS NULL OR (created_at, id) > ($1::timestamptz, $2::text))
+      ORDER BY created_at, id
+      LIMIT ${BACKFILL_BATCH_SIZE}`,
+    (row) => `${row.created_at}\u0000${row.id}`,
+  )) {
+    reviewCandidates.push({
+      key: `backfill:review:${review.id}`,
+      sortAt: review.created_at,
+      traceId: review.trace_id,
+      kind: 'review',
+      review,
+    });
   }
 
   // Merge all candidates and order them globally by stable time key so the
   // canonical trace sequence is consistent across stores.
   const candidates: SpanCandidate[] = [
-    ...messages.map((message) => ({
-      key: `backfill:${message.role === 'tool' ? 'tool' : 'model'}:${message.id}`,
-      sortAt: message.created_at,
-      kind: (message.role === 'tool' ? 'message-tool' : 'message-model') as
-        | 'message-tool'
-        | 'message-model',
-      message,
-    })),
-    ...tools.map((tool) => ({
-      key: `backfill:tool:${tool.id}`,
-      sortAt: tool.started_at,
-      kind: 'tool-log' as const,
-      tool,
-    })),
-    ...reviews.map((review) => ({
-      key: `backfill:review:${review.id}`,
-      sortAt: review.created_at,
-      kind: 'review' as const,
-      review,
-    })),
+    ...messageCandidates,
+    ...toolCandidates,
+    ...reviewCandidates,
   ].sort((a, b) =>
     a.sortAt === b.sortAt
       ? a.key.localeCompare(b.key)
@@ -442,14 +506,9 @@ async function main() {
   );
 
   for (const candidate of candidates) {
-    const traceId =
-      candidate.message?.trace_id ??
-      candidate.tool?.trace_id ??
-      candidate.review?.trace_id ??
-      '';
     // Skip candidates that already have a span (idempotent re-run) WITHOUT
     // consuming a sequence slot.
-    if (await spanExists(query, traceId, candidate.key)) {
+    if (await spanExists(query, candidate.traceId, candidate.key)) {
       skipped += 1;
       continue;
     }

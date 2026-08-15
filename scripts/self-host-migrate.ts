@@ -82,8 +82,17 @@ async function main() {
   );
   await runCommand('npx', ['tsx', 'scripts/migrate-workspaces.ts']);
 
-  console.log('[self-host-migrate] backfilling canonical Trace storage');
-  await runCommand('npx', ['tsx', 'scripts/backfill-traces.ts']);
+  // Best-effort: the backfill is idempotent and safe to re-run on the next
+  // boot, so a failure here must not fail the schema migration itself.
+  try {
+    console.log('[self-host-migrate] backfilling canonical Trace storage');
+    await runCommand('npx', ['tsx', 'scripts/backfill-traces.ts']);
+  } catch (error) {
+    console.warn(
+      '[self-host-migrate] canonical Trace backfill failed (continuing):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 
   console.log('[self-host-migrate] database schema is up to date');
 }

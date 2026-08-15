@@ -438,12 +438,17 @@ export async function finalizeTraceRun(input: {
 }
 
 export async function getCanonicalTraceRun(traceId: string) {
-  const [row] = await db
-    .select()
-    .from(traceRuns)
-    .where(eq(traceRuns.traceId, traceId))
-    .limit(1);
-  return row ?? null;
+  // Same 42P01 fallback as the other canonical readers: a deployment whose
+  // trace tables have not been created yet must degrade to "no run" rather
+  // than propagate a missing-table error to callers.
+  return canonicalOr(async () => {
+    const [row] = await db
+      .select()
+      .from(traceRuns)
+      .where(eq(traceRuns.traceId, traceId))
+      .limit(1);
+    return row ?? null;
+  }, null);
 }
 
 export async function listCanonicalTraceRuns(input: {

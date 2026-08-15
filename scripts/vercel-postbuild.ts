@@ -69,8 +69,18 @@ async function main() {
   );
   await runCommand('npx', ['tsx', 'scripts/migrate-workspaces.ts']);
 
-  console.log('[postbuild] backfilling canonical Trace storage');
-  await runCommand('npx', ['tsx', 'scripts/backfill-traces.ts']);
+  // Best-effort: the backfill is idempotent and safe to re-run on the next
+  // deployment, so a failure here (legacy store drift, transient DB error)
+  // must not fail the schema migration itself.
+  try {
+    console.log('[postbuild] backfilling canonical Trace storage');
+    await runCommand('npx', ['tsx', 'scripts/backfill-traces.ts']);
+  } catch (error) {
+    console.warn(
+      '[postbuild] canonical Trace backfill failed (continuing):',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 
   console.log('[postbuild] database schema is up to date');
 }

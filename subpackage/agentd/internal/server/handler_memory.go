@@ -16,6 +16,7 @@
 package server
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -31,13 +32,25 @@ func (s *Server) handleWriteReviewLogs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	// Drop entries without a run_id (they cannot be attached to a
+	// trace) instead of rejecting the whole batch; skip-and-warn keeps
+	// the valid records flowing.
+	filtered := make([]clawless.ReviewLog, 0, len(logs))
 	for _, log := range logs {
 		if log.RunID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "run_id is required for review logs"})
-			return
+			slog.Warn("skipping review log without run_id",
+				"task_id", log.TaskID,
+				"level", log.Level,
+				"decision", log.Decision)
+			continue
 		}
+		filtered = append(filtered, log)
 	}
-	if err := s.clawless.WriteReviewLogs(c.Request.Context(), logs); err != nil {
+	if len(filtered) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "run_id is required for review logs"})
+		return
+	}
+	if err := s.clawless.WriteReviewLogs(c.Request.Context(), filtered); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}

@@ -359,6 +359,30 @@ function shortHash(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
+/**
+ * Web-side mirror of agentd's clawless.BuildReviewIdempotencyKey:
+ * `review:<task>:<level>:<decision>:<hex(sha256(command)[:16])>`. Both sides
+ * must derive byte-identical keys for the same review, otherwise the same
+ * record ingested from either producer gets two canonical spans. Uses the
+ * global WebCrypto subtle digest (available in Node 18+ and edge runtimes —
+ * no `node:crypto` import, which is banned in workflow-reachable files).
+ */
+async function buildReviewIdempotencyKey(
+  taskId: string,
+  level: string,
+  decision: string,
+  command: string,
+): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(command),
+  );
+  const hex = Array.from(new Uint8Array(digest.slice(0, 16)))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+  return `review:${taskId}:${level}:${decision}:${hex}`;
+}
+
 export function formatTaskForAgentd(task: AgentdTask) {
   return {
     id: task.id,
@@ -625,30 +649,29 @@ export async function writeReviewLogs(
 ) {
   const identityCache = new Map<
     string,
-    Awaited<ReturnType<typeof deriveTaskIdentity>>
+    Awaited<ReturnType<typeof resolveTaskWithIdentity>>
   >();
-  const taskCache = new Map<string, Awaited<ReturnType<typeof getTask>>>();
 
-  async function identityFor(taskId: string) {
+  // One cached resolveTaskWithIdentity per taskId derives task, session and
+  // user data in a single pass (previously two parallel caches ran a
+  // getTask and a deriveTaskIdentity that each re-selected the same rows).
+  async function resolveFor(taskId: string) {
     const cached = identityCache.get(taskId);
     if (cached) return cached;
-    const identity = await deriveTaskIdentity(taskId);
-    identityCache.set(taskId, identity);
-    return identity;
-  }
-
-  async function taskFor(taskId: string) {
-    const cached = taskCache.get(taskId);
-    if (cached !== undefined) return cached;
-    const task = await getTask(taskId);
-    taskCache.set(taskId, task);
-    return task;
+    const resolved = await resolveTaskWithIdentity(taskId);
+    identityCache.set(taskId, resolved);
+    return resolved;
   }
 
   return Promise.all(
     logs.map(async (log) => {
       const taskId = log.taskId ?? log.task_id ?? '';
-      const identity = await identityFor(taskId);
+      const { identity, task } = taskId
+        ? await resolveFor(taskId)
+        : {
+            identity: await deriveTaskIdentity(''),
+            task: null,
+          };
       const traceId =
         log.traceId ?? log.trace_id ?? log.runId ?? log.run_id ?? null;
       if (!traceId) {
@@ -656,22 +679,31 @@ export async function writeReviewLogs(
           `Trace id is required for security review ${taskId || log.command}`,
         );
       }
-      const task = taskId ? await taskFor(taskId) : null;
       const decision = normalizeDecision(log.decision);
       const score = normalizeScore(log.score);
+      // Fallback keys mirror agentd's clawless.BuildReviewIdempotencyKey
+      // (SHA-256 digest of the command) so records ingested from either
+      // side converge on the same canonical identity.
       const idempotencyKey =
         log.idempotencyKey ??
         log.idempotency_key ??
-        `review:${taskId}:${log.level}:${decision}:${log.command}`;
+        (await buildReviewIdempotencyKey(
+          taskId || 'unknown',
+          log.level,
+          decision,
+          log.command,
+        ));
       const span = await ingestTraceSpan({
         traceId,
-        // Same pattern as the tool path: taskId+level+command can repeat
-        // within one trace while the idempotency key differs (e.g. an
-        // 'allowed' and a 'denied' review of the same command), and
+        // Same pattern as the tool path: taskId+level can repeat within
+        // one trace while the idempotency key differs (e.g. an 'allowed'
+        // and a 'denied' review of the same command), and
         // `unique (trace_id, span_id)` would reject the second insert.
         // The idempotency-key hash keeps spanId unique per record while
-        // staying stable across retries of the same record.
-        spanId: `review:${taskId || 'unknown'}:${log.level}:${log.command}:${shortHash(idempotencyKey)}`,
+        // staying stable across retries of the same record. The command is
+        // deliberately NOT part of spanId: it is caller-controlled and can
+        // exceed btree index-entry limits.
+        spanId: `review:${taskId || 'unknown'}:${log.level}:${shortHash(idempotencyKey)}`,
         // The real parent span is not knowable from a review callback
         // (there is no guaranteed `model:<trace>:<step>` row for it), so
         // the span attaches to the trace root instead of a fabricated parent.
@@ -730,32 +762,32 @@ function asNullableText(value: unknown): string | null {
 }
 
 export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
-  const taskIdentityCache = new Map<
-    string,
-    Awaited<ReturnType<typeof deriveTaskIdentity>>
-  >();
   const sessionIdentityCache = new Map<
     string,
     Awaited<ReturnType<typeof deriveSessionIdentity>>
   >();
-  const taskCache = new Map<string, Awaited<ReturnType<typeof getTask>>>();
+  // resolveTaskWithIdentity derives the task row and its identity in one
+  // pass; cached per taskId so task + session + user data are resolved
+  // once per batch (previously getTask and deriveTaskIdentity re-selected
+  // the same rows in parallel caches).
+  const resolvedTaskCache = new Map<
+    string,
+    Awaited<ReturnType<typeof resolveTaskWithIdentity>>
+  >();
 
-  async function taskFor(taskId: string) {
-    const cached = taskCache.get(taskId);
-    if (cached !== undefined) return cached;
-    const task = await getTask(taskId);
-    taskCache.set(taskId, task);
-    return task;
+  async function resolveFor(taskId: string) {
+    const cached = resolvedTaskCache.get(taskId);
+    if (cached) return cached;
+    const resolved = await resolveTaskWithIdentity(taskId);
+    resolvedTaskCache.set(taskId, resolved);
+    return resolved;
   }
 
   async function identityFor(input: ToolActivityLogInput) {
     const taskId = input.taskId ?? input.task_id ?? '';
     if (taskId) {
-      const cached = taskIdentityCache.get(taskId);
-      if (cached) return cached;
-      const identity = await deriveTaskIdentity(taskId);
-      taskIdentityCache.set(taskId, identity);
-      return identity;
+      const resolved = await resolveFor(taskId);
+      return resolved.identity;
     }
 
     const sessionId = input.sessionId ?? input.session_id ?? '';
@@ -844,7 +876,7 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
           `Trace id is required for tool activity ${value.toolCallId ?? value.toolName}`,
         );
       }
-      const task = value.taskId ? await taskFor(value.taskId) : null;
+      const task = value.taskId ? (await resolveFor(value.taskId)).task : null;
       const original = logs[index];
       const startedAt = value.startedAt;
       const completedAt = value.completedAt;

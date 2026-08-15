@@ -115,6 +115,12 @@ export interface TraceRows {
     startedAt: Date | string;
     completedAt: Date | string | null;
     durationMs: number | null;
+    /** Run-level identity: the fallback used by buildTraceSummary when a
+     * trace has no model/tool/review spans (e.g. events-only runs). */
+    sessionId?: string | null;
+    sessionTitle?: string | null;
+    userId?: string | null;
+    agentId?: string | null;
   };
   models?: TraceModelRow[];
   tools?: TraceToolRow[];
@@ -435,15 +441,22 @@ export function buildTraceSummary(
     firstModel?.sessionId ??
     firstTool?.sessionId ??
     firstReview?.sessionId ??
+    rows.run?.sessionId ??
     null;
   const sessionTitle =
     firstModel?.sessionTitle ??
     firstTool?.sessionTitle ??
     firstReview?.sessionTitle ??
+    rows.run?.sessionTitle ??
     null;
   const userId =
-    firstModel?.userId ?? firstTool?.userId ?? firstReview?.userId ?? null;
-  const agentId = firstTool?.agentId ?? firstReview?.agentId ?? null;
+    firstModel?.userId ??
+    firstTool?.userId ??
+    firstReview?.userId ??
+    rows.run?.userId ??
+    null;
+  const agentId =
+    firstTool?.agentId ?? firstReview?.agentId ?? rows.run?.agentId ?? null;
 
   return {
     traceId: rows.traceId,

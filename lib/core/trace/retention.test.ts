@@ -3,91 +3,9 @@ import { sql } from 'drizzle-orm';
 
 import { resetDb, setupPgLiteTestDb } from '@/lib/extra/test/pglite-harness';
 
-// Same DDL as dal.test.ts: the three canonical trace tables.
-const DDL = [
-  `CREATE TABLE "trace_runs" (
-    "trace_id" text PRIMARY KEY,
-    "span_id" text NOT NULL,
-    "parent_span_id" text,
-    "sequence" bigint DEFAULT 0 NOT NULL,
-    "source" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "next_sequence" bigint DEFAULT 0 NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    "updated_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
-  `CREATE TABLE "trace_spans" (
-    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    "trace_id" text NOT NULL,
-    "span_id" text NOT NULL,
-    "parent_span_id" text,
-    "sequence" bigint NOT NULL,
-    "source" text NOT NULL,
-    "type" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    "updated_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "span_id"),
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
-  `CREATE TABLE "trace_events" (
-    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    "event_id" text NOT NULL,
-    "trace_id" text NOT NULL,
-    "span_id" text,
-    "parent_span_id" text,
-    "sequence" bigint NOT NULL,
-    "source" text NOT NULL,
-    "type" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "event_id"),
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
-];
+import { TRACE_TABLE_DDL } from './test-support';
+
+const DDL = [...TRACE_TABLE_DDL];
 
 const harness = setupPgLiteTestDb(DDL);
 
@@ -98,7 +16,7 @@ vi.mock('@/lib/core/db', () => ({
 }));
 
 import { traceRuns } from '@/lib/core/db/schema';
-import { cleanupExpiredTraces } from './retention';
+import { cleanupExpiredTraces, TRACE_CLEANUP_BATCH_SIZE } from './retention';
 
 /** PGlite transactions only differ from the neon/node-postgres tx type in
  *  their query-result HKT; cast through the narrow structural surface the
@@ -190,23 +108,85 @@ describe('trace retention cleanup', () => {
     expect(await counts()).toEqual({ runs: 0, spans: 0, events: 0 });
   });
 
-  it('emits a FOR UPDATE lock on the selected run rows', async () => {
+  it('emits a FOR UPDATE lock from the actual cleanup query', async () => {
     // The lock is the fix for the select->delete race: the SELECT that
     // decides the delete set must take row locks so a concurrent ingest
     // (which updates trace_runs via allocateSequence) serializes behind
     // the cleanup instead of interleaving between select and delete.
     // PGlite is single-connection, so true interleaving cannot be
-    // simulated; assert the lock actually makes it into the emitted SQL.
-    const query = harness.db
-      .select({ traceId: traceRuns.traceId })
-      .from(traceRuns)
-      .for('update');
-    const { sql: emitted } = query.toSQL();
-    expect(emitted.toLowerCase()).toContain('for update');
+    // simulated; instead wrap the tx handle passed to the REAL function
+    // and record the emitted SQL (any query-builder method that returns
+    // an object with toSQL() gets re-wrapped) so the assertion observes
+    // the code under test, not an independently constructed query.
+    await insertRun('any-run', new Date(Date.now() - OLD_DAYS * 86_400_000));
+    let lastSelectSql: string | null = null;
 
-    await insertRun('any-run', new Date());
-    const rows = await query;
-    expect(rows.map((row) => row.traceId)).toEqual(['any-run']);
+    /** Wrap a query builder so any SQL it eventually emits is recorded. */
+    const wrapBuilder = (builder: unknown): unknown =>
+      new Proxy(builder as object, {
+        get(target, prop) {
+          const value = Reflect.get(target, prop, target);
+          if (typeof value !== 'function') return value;
+          return (...args: unknown[]) => {
+            const returned = value.apply(target, args);
+            if (
+              returned &&
+              typeof (returned as { toSQL?: unknown }).toSQL === 'function'
+            ) {
+              // Builders expose toSQL() at every chain stage; keep only the
+              // latest SQL per statement so the FINAL form (with
+              // where/limit/for) is what gets asserted.
+              const text = (returned as { toSQL: () => { sql: string } })
+                .toSQL()
+                .sql.toLowerCase();
+              if (text.startsWith('select')) {
+                lastSelectSql = text;
+              }
+            }
+            // Chainable builders (from/where/orderBy/limit) keep being
+            // wrapped so the final executable form is captured too.
+            return wrapBuilder(returned);
+          };
+        },
+      });
+
+    const spyingTx = new Proxy(asCleanupTx(harness.db), {
+      get(target, prop) {
+        const value = Reflect.get(target, prop, target);
+        if (prop === 'select' && typeof value === 'function') {
+          return (...args: unknown[]) => wrapBuilder(value.apply(target, args));
+        }
+        return value;
+      },
+    });
+
+    const result = await cleanupExpiredTraces(spyingTx, OLD_DAYS);
+
+    expect(result.runs).toBe(1);
+    // The SELECT stages were captured from the real cleanup query.
+    expect(lastSelectSql).not.toBeNull();
+    expect(lastSelectSql).toContain('for update');
+    expect(lastSelectSql).toContain('limit');
+  });
+
+  it('deletes at most TRACE_CLEANUP_BATCH_SIZE runs per call', async () => {
+    const cutoff = new Date(Date.now() - OLD_DAYS * 24 * 60 * 60 * 1000);
+    const total = TRACE_CLEANUP_BATCH_SIZE + 3;
+    for (let i = 0; i < total; i++) {
+      await insertRun(`expired-${i}`, new Date(cutoff.getTime() - i * 1000));
+    }
+
+    const first = await harness.db.transaction((tx) =>
+      cleanupExpiredTraces(asCleanupTx(tx), OLD_DAYS),
+    );
+    expect(first.runs).toBe(TRACE_CLEANUP_BATCH_SIZE);
+
+    // The wrapper drains the remainder across additional batches.
+    const second = await harness.db.transaction((tx) =>
+      cleanupExpiredTraces(asCleanupTx(tx), OLD_DAYS),
+    );
+    expect(second.runs).toBe(total - TRACE_CLEANUP_BATCH_SIZE);
+    expect(await counts()).toEqual({ runs: 0, spans: 0, events: 0 });
   });
 
   it('scopes deletes to exactly the trace ids the locked select captured', async () => {

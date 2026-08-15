@@ -235,13 +235,20 @@ func parsePartialCallback(data []byte) *PartialCallbackError {
 		Body:   string(data),
 	}
 	for i, raw := range resp.Errors {
-		var msg string
-		if err := json.Unmarshal(raw, &msg); err != nil || msg == "" {
-			// null entry → that record succeeded.
+		// JSON null entry → that record succeeded.
+		if string(raw) == "null" {
 			pErr.Errors = append(pErr.Errors, "")
 			continue
 		}
+		// Non-string or empty-string values are real failures (the server
+		// signals failure per index with a JSON value). Use the unmarshalled
+		// message when it is a non-empty string; otherwise fall back to the
+		// raw JSON representation so the message is never silently dropped.
 		pErr.FailedIndexes = append(pErr.FailedIndexes, i)
+		var msg string
+		if err := json.Unmarshal(raw, &msg); err != nil || msg == "" {
+			msg = string(raw)
+		}
 		pErr.Errors = append(pErr.Errors, msg)
 	}
 	if resp.Failed == 0 {
@@ -499,10 +506,12 @@ func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
 			// from the caller or BuildReviewIdempotencyKey) — prepending
 			// it again used to produce "review:review:..." span ids.
 			"span_id":         idempotencyKey,
-			"parent_span_id":  "model:" + log.RunID + ":0",
+			// The parent span is not knowable from agentd (review logs are
+			// not tied to a specific model span); attach to the trace root.
+			"parent_span_id":  nil,
 			"source":          "agentd",
 			"type":            "review",
-			"status":          log.Decision,
+			"status":          "completed",
 			"started_at":      startedAt,
 			"completed_at":    startedAt,
 			"duration_ms":     0,

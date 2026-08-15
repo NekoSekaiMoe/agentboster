@@ -62,5 +62,16 @@ describe('canonical Trace callback protocol', () => {
         type: 'tool',
       }),
     ).toBeNull();
+    // A canonical span must carry its own span_id even when the rest of
+    // the identity (trace/type/idempotency_key) is present — otherwise the
+    // span proceeds with a null spanId and fails (or mis-stores) downstream.
+    expect(
+      normalizeTraceCallback({
+        record_kind: 'span',
+        trace_id: 'run-1',
+        type: 'tool',
+        idempotency_key: 'tool:run-1:call-1',
+      }),
+    ).toBeNull();
   });
 });

@@ -3,90 +3,9 @@ import { sql } from 'drizzle-orm';
 
 import { resetDb, setupPgLiteTestDb } from '@/lib/extra/test/pglite-harness';
 
-const DDL = [
-  `CREATE TABLE "trace_runs" (
-    "trace_id" text PRIMARY KEY,
-    "span_id" text NOT NULL,
-    "parent_span_id" text,
-    "sequence" bigint DEFAULT 0 NOT NULL,
-    "source" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "next_sequence" bigint DEFAULT 0 NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    "updated_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
-  `CREATE TABLE "trace_spans" (
-    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    "trace_id" text NOT NULL,
-    "span_id" text NOT NULL,
-    "parent_span_id" text,
-    "sequence" bigint NOT NULL,
-    "source" text NOT NULL,
-    "type" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    "updated_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "span_id"),
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
-  `CREATE TABLE "trace_events" (
-    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    "event_id" text NOT NULL,
-    "trace_id" text NOT NULL,
-    "span_id" text,
-    "parent_span_id" text,
-    "sequence" bigint NOT NULL,
-    "source" text NOT NULL,
-    "type" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "event_id"),
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
-];
+import { TRACE_TABLE_DDL } from './test-support';
+
+const DDL = [...TRACE_TABLE_DDL];
 
 const harness = setupPgLiteTestDb(DDL);
 
@@ -96,7 +15,12 @@ vi.mock('@/lib/core/db', () => ({
   },
 }));
 
-import { ensureTraceRun, ingestTraceEvent, ingestTraceSpan } from './dal';
+import {
+  ensureTraceRun,
+  finalizeTraceRun,
+  ingestTraceEvent,
+  ingestTraceSpan,
+} from './dal';
 
 describe('canonical trace DAL', () => {
   beforeEach(() =>
@@ -149,5 +73,59 @@ describe('canonical trace DAL', () => {
       )
     ).rows as Array<{ count: number }>;
     expect(rows[0]?.count).toBe(1);
+  });
+
+  it('replays ensureTraceRun without duplicating the run row', async () => {
+    const input = {
+      traceId: 'run-dal-replay',
+      source: 'test',
+      type: 'run',
+      status: 'running',
+      startedAt: new Date('2026-08-15T00:00:00Z'),
+      idempotencyKey: 'run:run-dal-replay',
+    } as const;
+
+    const first = await ensureTraceRun(input);
+    const replay = await ensureTraceRun(input);
+
+    expect(first?.duplicate).toBe(false);
+    expect(replay?.duplicate).toBe(true);
+    const rows = (
+      await harness.db.execute(
+        sql`SELECT count(*)::int AS count FROM "trace_runs" WHERE "trace_id" = 'run-dal-replay'`,
+      )
+    ).rows as Array<{ count: number }>;
+    expect(rows[0]?.count).toBe(1);
+  });
+
+  it('keeps the terminal status on a repeated finalizeTraceRun', async () => {
+    const traceId = 'run-dal-final';
+    await ensureTraceRun({
+      traceId,
+      source: 'test',
+      type: 'run',
+      status: 'running',
+      startedAt: new Date('2026-08-15T00:00:00Z'),
+      idempotencyKey: `run:${traceId}`,
+    });
+    const first = await finalizeTraceRun({
+      traceId,
+      status: 'completed',
+      completedAt: new Date('2026-08-15T00:01:00Z'),
+    });
+    const replay = await finalizeTraceRun({
+      traceId,
+      status: 'failed',
+      error: { message: 'late attempt to overwrite the terminal status' },
+    });
+
+    expect(first?.status).toBe('completed');
+    expect(replay).toBeNull();
+    const rows = (
+      await harness.db.execute(
+        sql`SELECT "status" FROM "trace_runs" WHERE "trace_id" = ${traceId}`,
+      )
+    ).rows as Array<{ status: string }>;
+    expect(rows[0]?.status).toBe('completed');
   });
 });

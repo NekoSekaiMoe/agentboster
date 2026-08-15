@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 
 import { AuthError, requireAuthAccess } from '@/lib/auth/access';
+import { csvField } from '@/lib/extra/csv';
 import { listTraces } from '@/lib/core/trace/query';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -19,25 +20,6 @@ function parseLimit(value: string | null): number {
   const parsed = Number(value ?? DEFAULT_DOWNLOAD_LIMIT);
   if (!Number.isFinite(parsed)) return DEFAULT_DOWNLOAD_LIMIT;
   return Math.min(Math.max(Math.trunc(parsed), 1), MAX_DOWNLOAD_LIMIT);
-}
-
-/**
- * CSV field encoder:
- * - empty/null stays an empty string;
- * - values containing commas, quotes or newlines are quoted with `"` escaped;
- * - values starting with =, +, -, or @ get a leading apostrophe so spreadsheet
- *   apps do not evaluate them as formulas (CSV injection).
- */
-function csvField(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  let text = String(value);
-  if (/^[=+\-@]/.test(text)) {
-    text = `'${text}`;
-  }
-  if (/[",\r\n]/.test(text)) {
-    text = `"${text.replace(/"/g, '""')}"`;
-  }
-  return text;
 }
 
 export async function GET(request: Request) {

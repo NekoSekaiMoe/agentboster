@@ -24,6 +24,7 @@ import * as schema from './schema';
 const logger = createLogger('db.pg-driver');
 
 let _warmed = false;
+let _pool: Pool | null = null;
 
 /**
  * Build the node-postgres driver and inject it into `db/index.ts`.
@@ -41,6 +42,7 @@ export async function warmupDatabase(): Promise<void> {
   if (resolveDriver(databaseUrl) !== 'postgres') return;
 
   const pool = new Pool({ connectionString: requireDatabaseUrl() });
+  _pool = pool;
   // A pg Pool emits 'error' on idle clients whose backend connection drops
   // (server restart, network blip, idle timeout). Node terminates the process
   // on an unhandled 'error' event, so this listener is mandatory: log and let
@@ -52,4 +54,17 @@ export async function warmupDatabase(): Promise<void> {
   });
   setDb(drizzleNodePg(pool, { schema }));
   _warmed = true;
+}
+
+/**
+ * Close the warmed-up pg pool (no-op on the neon path or when nothing was
+ * warmed). Host scripts (e.g. scripts/cleanup-traces.ts) call this on exit
+ * so the process does not hang on an open connection — the same parity
+ * scripts/db-raw-sql.ts provides with closeRawSql().
+ */
+export async function closeDatabase(): Promise<void> {
+  const pool = _pool;
+  _pool = null;
+  _warmed = false;
+  if (pool) await pool.end();
 }

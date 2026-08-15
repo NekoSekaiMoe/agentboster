@@ -761,7 +761,7 @@ func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 		Decision:       decision,
 		Reason:         fmt.Sprintf("User %s: duration=%s", action, duration),
 		Command:        command,
-		IdempotencyKey: fmt.Sprintf("review:%s:L2:%s:%s", taskID, decision, command),
+		IdempotencyKey: clawless.BuildReviewIdempotencyKey(taskID, "L2", decision, command),
 	}
 	if runID == "" {
 		slog.Warn("L2 auth has no trace id; canonical review skipped", "task_id", taskID)

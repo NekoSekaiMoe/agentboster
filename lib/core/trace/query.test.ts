@@ -3,6 +3,8 @@ import { sql } from 'drizzle-orm';
 
 import { resetDb, setupPgLiteTestDb } from '@/lib/extra/test/pglite-harness';
 
+import { TRACE_TABLE_DDL } from './test-support';
+
 const DDL = [
   `CREATE TABLE "sessions" (
     "id" uuid PRIMARY KEY,
@@ -12,88 +14,7 @@ const DDL = [
     "workflow_run_id" text,
     "metadata" jsonb
   )`,
-  `CREATE TABLE "trace_runs" (
-    "trace_id" text PRIMARY KEY,
-    "span_id" text NOT NULL,
-    "parent_span_id" text,
-    "sequence" bigint DEFAULT 0 NOT NULL,
-    "source" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "next_sequence" bigint DEFAULT 0 NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    "updated_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
-  `CREATE TABLE "trace_spans" (
-    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    "trace_id" text NOT NULL,
-    "span_id" text NOT NULL,
-    "parent_span_id" text,
-    "sequence" bigint NOT NULL,
-    "source" text NOT NULL,
-    "type" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    "updated_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "span_id"),
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
-  `CREATE TABLE "trace_events" (
-    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    "event_id" text NOT NULL,
-    "trace_id" text NOT NULL,
-    "span_id" text,
-    "parent_span_id" text,
-    "sequence" bigint NOT NULL,
-    "source" text NOT NULL,
-    "type" text NOT NULL,
-    "status" text DEFAULT 'pending' NOT NULL,
-    "started_at" timestamptz DEFAULT now() NOT NULL,
-    "completed_at" timestamptz,
-    "duration_ms" integer,
-    "user_id" text,
-    "session_id" uuid,
-    "task_id" uuid,
-    "workspace_id" uuid,
-    "node_id" text,
-    "agent_id" text,
-    "input" jsonb,
-    "output" jsonb,
-    "error" jsonb,
-    "metadata" jsonb,
-    "idempotency_key" text NOT NULL,
-    "created_at" timestamptz DEFAULT now() NOT NULL,
-    UNIQUE ("trace_id", "event_id"),
-    UNIQUE ("trace_id", "idempotency_key")
-  )`,
+  ...TRACE_TABLE_DDL,
 ];
 
 const harness = setupPgLiteTestDb(DDL);
@@ -212,6 +133,55 @@ describe('canonical trace query', () => {
       sessionTitle: null,
       status: 'completed',
       userId: 'user-1',
+    });
+  });
+
+  it('preserves run identity for event-only traces without any spans', async () => {
+    // A canonical run with only events (no model/tool/review spans) must
+    // still surface sessionId/sessionTitle/userId/agentId in summaries,
+    // exports and search — via the run-level fallback fields.
+    const eventOnlyId = 'run-event-only';
+    await harness.db.execute(sql`
+      INSERT INTO "trace_runs" (
+        "trace_id", "span_id", "source", "status", "started_at",
+        "completed_at", "duration_ms", "user_id", "session_id", "agent_id",
+        "idempotency_key", "next_sequence"
+      ) VALUES (
+        ${eventOnlyId}, ${`run:${eventOnlyId}`}, 'workflow', 'completed',
+        '2026-08-14T00:00:00.000Z', '2026-08-14T00:00:02.000Z', 2000,
+        'user-1', ${sessionId}::uuid, 'main',
+        ${`run:${eventOnlyId}`}, 1
+      )
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO "trace_events" (
+        "event_id", "trace_id", "sequence", "source", "type", "status",
+        "started_at", "completed_at", "duration_ms", "user_id",
+        "session_id", "output", "idempotency_key"
+      ) VALUES (
+        'evt-1', ${eventOnlyId}, 1, 'workflow', 'workflow.completed',
+        'completed', '2026-08-14T00:00:01.000Z', '2026-08-14T00:00:01.500Z',
+        500, 'user-1', ${sessionId}::uuid,
+        ${JSON.stringify({ message: 'workflow finished' })}::jsonb,
+        'evt-1'
+      )
+    `);
+
+    const list = await listTraces({ userId: 'user-1' }, { limit: 10 });
+    const eventOnly = list.find((trace) => trace.traceId === eventOnlyId);
+    expect(eventOnly).toMatchObject({
+      sessionId,
+      sessionTitle: 'Query trace session',
+      userId: 'user-1',
+      agentId: 'main',
+    });
+
+    const detail = await getTrace(eventOnlyId, { userId: 'user-1' });
+    expect(detail?.summary).toMatchObject({
+      sessionId,
+      sessionTitle: 'Query trace session',
+      userId: 'user-1',
+      agentId: 'main',
     });
   });
 });
