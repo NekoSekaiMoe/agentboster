@@ -1,5 +1,8 @@
 import { requireAuthAccess } from '@/lib/auth/access';
-import { listCanonicalReviewSpans } from '@/lib/core/trace/dal';
+import {
+  CANONICAL_QUERY_LIMIT_MAX,
+  listCanonicalReviewSpans,
+} from '@/lib/core/trace/dal';
 import { createLogger } from '@/lib/utils/logger';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -19,9 +22,27 @@ export async function GET(request: Request) {
     const from = searchParams.get('from');
     const to = searchParams.get('to');
 
+    const fromAt = from ? new Date(from) : null;
+    if (from && (!fromAt || Number.isNaN(fromAt.getTime()))) {
+      return NextResponse.json(
+        { error: 'Invalid "from" timestamp' },
+        { status: 400 },
+      );
+    }
+    const toAt = to ? new Date(to) : null;
+    if (to && (!toAt || Number.isNaN(toAt.getTime()))) {
+      return NextResponse.json(
+        { error: 'Invalid "to" timestamp' },
+        { status: 400 },
+      );
+    }
+
+    // listCanonicalReviewSpans only pushes userId/limit down; level, decision,
+    // search, taskId/agentId and the time window stay in-memory over the max
+    // canonical candidate pool.
     const canonicalRows = await listCanonicalReviewSpans({
       userId: access.isAdmin ? undefined : access.session.userId,
-      limit: 10000,
+      limit: CANONICAL_QUERY_LIMIT_MAX,
     });
     const logs = canonicalRows
       .map((row) => {
@@ -58,8 +79,8 @@ export async function GET(request: Request) {
         }
         if (taskId && log.taskId !== taskId) return false;
         if (agentId && log.agentId !== agentId) return false;
-        if (from && log.createdAt < new Date(from)) return false;
-        if (to && log.createdAt > new Date(to)) return false;
+        if (fromAt && log.createdAt < fromAt) return false;
+        if (toAt && log.createdAt > toAt) return false;
         return true;
       })
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())

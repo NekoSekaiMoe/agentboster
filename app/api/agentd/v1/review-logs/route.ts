@@ -1,7 +1,9 @@
 export const dynamic = 'force-dynamic';
 
-import { ingestAgentdTraceCallback } from '@/lib/core/trace/receiver';
-import { normalizeTraceCallback } from '@/lib/core/trace/protocol';
+import {
+  ingestTraceCallbackBatch,
+  normalizeTraceCallbackBatch,
+} from '../trace-callbacks';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.review-logs');
@@ -9,29 +11,19 @@ const logger = createLogger('api.agentd.review-logs');
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const items = Array.isArray(body) ? body : [body];
-    const callbacks = items.map(normalizeTraceCallback);
-    if (
-      callbacks.some(
-        (item) =>
-          !item ||
-          item.kind !== 'span' ||
-          (!item.envelope.type.startsWith('review') &&
-            !item.envelope.type.startsWith('security.')),
-      )
-    ) {
+    const normalized = normalizeTraceCallbackBatch(body, 'review');
+    if ('error' in normalized) {
       return Response.json(
-        { success: false, error: 'Invalid canonical review callback' },
+        { success: false, error: normalized.error },
         { status: 400 },
       );
     }
-    const rows = await Promise.all(
-      callbacks.map((item) => ingestAgentdTraceCallback(item!)),
-    );
-    return Response.json({
-      success: true,
-      data: rows,
-    });
+    const outcome = await ingestTraceCallbackBatch(normalized.callbacks);
+    if (outcome.body.success === false) {
+      logger.error('review log write failed', { error: outcome.body.error });
+      return Response.json(outcome.body, { status: outcome.status });
+    }
+    return Response.json(outcome.body, { status: outcome.status });
   } catch (error) {
     logger.error('review log write failed', {
       error: error instanceof Error ? error.message : String(error),

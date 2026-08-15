@@ -70,6 +70,10 @@ export const traceRuns = pgTable(
       table.workspaceId,
       table.startedAt,
     ),
+    startedTraceIdx: index('trace_runs_started_trace_idx').on(
+      table.startedAt.desc(),
+      table.traceId.desc(),
+    ),
   }),
 );
 

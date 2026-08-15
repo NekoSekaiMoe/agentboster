@@ -62,6 +62,70 @@ import {
 
 const logger = createLogger('workflow.agent');
 
+/**
+ * Structured terminal-control signals for the run finalizer. Only these
+ * produce a non-'error' terminal status; a plain provider/tool error whose
+ * message happens to contain "timeout"/"cancel" must still finalize as
+ * 'error' (previously a regex on the message text decided this).
+ */
+class RunCancelledSignal extends Error {
+  readonly cancelSignal = 'cancelled' as const;
+  constructor(reason?: string) {
+    super(reason ?? 'Run cancelled by instruction hook.');
+    this.name = 'RunCancelledSignal';
+  }
+  static is(value: unknown): value is RunCancelledSignal {
+    return (
+      value instanceof RunCancelledSignal ||
+      (value !== null &&
+        typeof value === 'object' &&
+        (value as { cancelSignal?: unknown }).cancelSignal === 'cancelled' &&
+        value instanceof Error)
+    );
+  }
+}
+
+class RunTimeoutSignal extends Error {
+  readonly timeoutSignal = 'timeout' as const;
+  constructor(reason?: string) {
+    super(reason ?? 'Run timed out.');
+    this.name = 'RunTimeoutSignal';
+  }
+  static is(value: unknown): value is RunTimeoutSignal {
+    return (
+      value instanceof RunTimeoutSignal ||
+      (value !== null &&
+        typeof value === 'object' &&
+        (value as { timeoutSignal?: unknown }).timeoutSignal === 'timeout' &&
+        value instanceof Error)
+    );
+  }
+}
+
+/**
+ * Structured classification of a run-terminating error. Timeout detection
+ * uses structural signals only — AbortError/TimeoutError error names, or a
+ * `code`/`cause.code` of 'TIMEOUT'/'TimeoutError' (the Workflow SDK's
+ * WorkflowRunFailedError carries `cause.code`) — never the message text.
+ */
+export function classifyTerminalStatus(
+  error: unknown,
+): 'timeout' | 'stopped' | 'error' {
+  if (RunCancelledSignal.is(error)) return 'stopped';
+  if (RunTimeoutSignal.is(error)) return 'timeout';
+
+  if (error instanceof Error) {
+    if (error.name === 'AbortError') return 'stopped';
+    if (error.name === 'TimeoutError') return 'timeout';
+    const err = error as Error & { code?: unknown; cause?: { code?: unknown } };
+    const codes: unknown[] = [err.code, err.cause?.code];
+    for (const code of codes) {
+      if (code === 'TIMEOUT' || code === 'TimeoutError') return 'timeout';
+    }
+  }
+  return 'error';
+}
+
 type QueuedInstruction =
   | {
       type: 'user-message';
@@ -669,7 +733,7 @@ export async function chatWorkflow(
           }
 
           if (mappedInstructions.cancelRequested) {
-            throw new Error('Run cancelled by instruction hook.');
+            throw new RunCancelledSignal();
           }
 
           // Apply provider message-compat normalization (aionrs ProviderCompat):
@@ -919,11 +983,7 @@ export async function chatWorkflow(
       return result.messages;
     } catch (error) {
       const errorText = error instanceof Error ? error.message : String(error);
-      const terminalStatus = /timeout/i.test(errorText)
-        ? ('timeout' as const)
-        : /cancel/i.test(errorText)
-          ? ('stopped' as const)
-          : ('error' as const);
+      const terminalStatus = classifyTerminalStatus(error);
       await finalizeRunStep({
         sessionId,
         runId,

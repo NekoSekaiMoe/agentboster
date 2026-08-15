@@ -63,6 +63,29 @@ function createStableMessageId(
     : `${kind}:${runId}:${stepNumber}:${index}`;
 }
 
+function isFailedToolOutput(
+  value: unknown,
+): { failed: true; error: { message: string } } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  // agentd path convention (see lib/core/db/agentd.ts writeToolActivityLogs
+  // and lib/workflow/agent/tools/execute/sanbox.ts): failure output is
+  // `{ success: false, error?: string, ... }`. Success output either omits
+  // `success` or sets it true.
+  if (record.success !== false) {
+    return null;
+  }
+  const message =
+    typeof record.error === 'string' && record.error.length > 0
+      ? record.error
+      : typeof record.message === 'string' && record.message.length > 0
+        ? record.message
+        : 'Tool execution failed.';
+  return { failed: true, error: { message } };
+}
+
 function isDeniedToolOutput(value: unknown): value is {
   denied: true;
   approved: false;
@@ -202,7 +225,11 @@ export async function persistStepDeltaAndUsageStep(input: {
         ? 'completed'
         : input.step.finishReason.toLowerCase().includes('error')
           ? 'failed'
-          : 'running',
+          : // tool-calls / content-filter / other / unknown are still
+            // terminal steps (persistStepDeltaAndUsageStep always runs with
+            // completedAt/durationMs set), so they must be 'completed', not
+            // 'running' — a finished span must never linger as running.
+            'completed',
     startedAt: stepCreatedAt,
     completedAt: stepCompletedAt,
     durationMs: stepDurationMs,
@@ -272,13 +299,20 @@ export async function persistStepDeltaAndUsageStep(input: {
       ),
     );
 
+    const failure = result ? isFailedToolOutput(result.output) : null;
     await ingestTraceSpan({
       traceId: runId,
       spanId: `tool:${runId}:${toolCall.toolCallId}`,
       parentSpanId: `model:${runId}:${input.step.stepNumber}`,
       source: 'workflow',
       type: 'tool',
-      status: deniedOutput ? 'failed' : result ? 'completed' : 'running',
+      status: deniedOutput
+        ? 'failed'
+        : failure
+          ? 'failed'
+          : result
+            ? 'completed'
+            : 'running',
       startedAt: stepCreatedAt,
       completedAt: result ? stepCompletedAt : null,
       durationMs: result ? stepDurationMs : null,
@@ -288,7 +322,11 @@ export async function persistStepDeltaAndUsageStep(input: {
       agentId: session?.metadata?.agentName as string | undefined,
       input: toolCall.input,
       output: toolOutput,
-      error: deniedOutput ? { message: toolOutput } : null,
+      error: deniedOutput
+        ? { message: toolOutput }
+        : failure
+          ? failure.error
+          : null,
       metadata: {
         toolName: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
@@ -494,6 +532,8 @@ export async function finalizeRunStep(input: {
   runId: string;
   status: 'completed' | 'stopped' | 'timeout' | 'error';
   error?: string;
+  /** Run duration in ms. When omitted, derived from the session start. */
+  durationMs?: number;
 }) {
   'use step';
 
@@ -519,11 +559,14 @@ export async function finalizeRunStep(input: {
         ? 'error'
         : input.status,
   });
+  // Timeout is a failure mode, not a user-initiated stop: keep the
+  // runtime phase aligned with the session status above ('error'),
+  // never 'cancelled' — the run did not end by an explicit stop.
   await patchWorkflowRuntime(input.sessionId, {
     phase:
       input.status === 'completed'
         ? 'completed'
-        : input.status === 'error'
+        : input.status === 'error' || input.status === 'timeout'
           ? 'error'
           : 'cancelled',
     lastRunId: input.runId,
@@ -531,6 +574,7 @@ export async function finalizeRunStep(input: {
     lastError: input.error ?? null,
   });
 
+  const finalizedAt = new Date();
   await finalizeTraceRun({
     traceId: input.runId,
     status:
@@ -541,6 +585,19 @@ export async function finalizeRunStep(input: {
           : input.status === 'timeout'
             ? 'timeout'
             : 'cancelled',
+    completedAt: finalizedAt,
+    // Duration is required for the trace UI's run timing; derive it from
+    // the earliest persisted step timestamp when the caller cannot supply
+    // a precise value.
+    durationMs:
+      typeof input.durationMs === 'number' && Number.isFinite(input.durationMs)
+        ? Math.max(0, Math.trunc(input.durationMs))
+        : session.createdAt
+          ? Math.max(
+              0,
+              finalizedAt.getTime() - new Date(session.createdAt).getTime(),
+            )
+          : null,
     error: input.error ? { message: input.error } : undefined,
   });
 

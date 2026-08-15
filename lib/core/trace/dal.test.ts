@@ -138,10 +138,11 @@ describe('canonical trace DAL', () => {
       output: { ok: true },
     });
 
-    expect(first.duplicate).toBe(false);
-    expect(duplicate.duplicate).toBe(true);
-    expect(Number(first.record.sequence)).toBe(1);
-    expect(Number(event.record.sequence)).toBe(2);
+    expect(first).not.toBeNull();
+    expect(first?.duplicate).toBe(false);
+    expect(duplicate?.duplicate).toBe(true);
+    expect(Number(first?.record.sequence)).toBe(1);
+    expect(Number(event?.record.sequence)).toBe(2);
     const rows = (
       await harness.db.execute(
         sql`SELECT count(*)::int AS count FROM "trace_spans"`,

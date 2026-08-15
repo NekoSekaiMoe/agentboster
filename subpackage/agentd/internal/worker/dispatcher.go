@@ -265,9 +265,14 @@ func (d *Dispatcher) handleTaskCreated(e eventbus.Event) {
 
 	result, logs := d.gatekeeper.Audit(ctx, task, "")
 
-	if len(logs) > 0 && task.RunID != "" {
-		if err := d.clawless.WriteReviewLogs(ctx, logs); err != nil {
-			slog.Error("failed to write review logs", "task_id", task.ID, "error", err)
+	if len(logs) > 0 {
+		if task.RunID != "" {
+			if err := d.clawless.WriteReviewLogs(ctx, logs); err != nil {
+				slog.Error("failed to write review logs", "task_id", task.ID, "error", err)
+			}
+		} else {
+			slog.Warn("task audit produced review logs but task has no run_id; output review records skipped",
+				"task_id", task.ID, "log_count", len(logs))
 		}
 	}
 
@@ -582,18 +587,22 @@ func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Write review log for audit trail
+	// Write review log for audit trail. payload["command"] is asserted
+	// as string (comma-ok): a missing or non-string value used to render
+	// as "<nil>" via fmt.Sprintf("%v") and leak into the command text
+	// and the idempotency key.
+	command, _ := payload["command"].(string)
 	decision, _ := payload["decision"].(string)
 	log := clawless.ReviewLog{
 		TaskID:         taskID,
 		SessionID:      sessionID,
 		RunID:          runID,
-		Command:        fmt.Sprintf("%v", payload["command"]),
+		Command:        command,
 		Level:          level,
 		Score:          1.0,
 		Decision:       decision,
 		Reason:         reason,
-		IdempotencyKey: fmt.Sprintf("review:%s:%s:%s:%s", taskID, level, decision, fmt.Sprintf("%v", payload["command"])),
+		IdempotencyKey: clawless.BuildReviewIdempotencyKey(taskID, level, decision, command),
 	}
 	if runID != "" {
 		if err := d.clawless.WriteReviewLogs(ctx, []clawless.ReviewLog{log}); err != nil {

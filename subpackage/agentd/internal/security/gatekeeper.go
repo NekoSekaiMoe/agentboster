@@ -47,7 +47,7 @@ func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason s
 		Score:          score,
 		Decision:       decision,
 		Reason:         reason,
-		IdempotencyKey: fmt.Sprintf("review:%s:%s:%s:%s", r.TaskID, level, decision, r.Command),
+		IdempotencyKey: clawless.BuildReviewIdempotencyKey(r.TaskID, level, decision, r.Command),
 	}
 }
 
@@ -337,9 +337,25 @@ func l1Action(r *clawless.L1Result) string {
 	}
 }
 
+// OutputAuditContext carries the inputs for AuditOutput. Collected
+// into a struct so the signature stays readable — the positional
+// variant had four adjacent string parameters (sessionSummary,
+// taskID, sessionID, runID) that were easy to transpose at call sites.
+type OutputAuditContext struct {
+	Output         string
+	SessionSummary string
+	TaskID         string
+	SessionID      string
+	RunID          string
+}
+
 // AuditOutput validates LLM output content through the security pipeline.
 // L0 checks for known leak patterns, L1 scores for anomalous output.
-func (g *Gatekeeper) AuditOutput(ctx context.Context, output string, sessionSummary, taskID, sessionID, runID string) (*ReviewResult, []clawless.ReviewLog) {
+func (g *Gatekeeper) AuditOutput(ctx context.Context, auditCtx OutputAuditContext) (*ReviewResult, []clawless.ReviewLog) {
+	output := auditCtx.Output
+	taskID := auditCtx.TaskID
+	sessionID := auditCtx.SessionID
+	runID := auditCtx.RunID
 	result := &ReviewResult{
 		TaskID:    taskID,
 		SessionID: sessionID,
@@ -369,7 +385,7 @@ func (g *Gatekeeper) AuditOutput(ctx context.Context, output string, sessionSumm
 	}
 
 	// === L1 Output Score ===
-	l1Result, err := g.l1.ScoreOutput(ctx, output, sessionSummary)
+	l1Result, err := g.l1.ScoreOutput(ctx, output, auditCtx.SessionSummary)
 	if err != nil {
 		slog.Error("L1 output scoring error", "error", err)
 		logs = append(logs, result.ReviewLog("L1-output", 0.3, "allowed", "L1 output scoring error"))

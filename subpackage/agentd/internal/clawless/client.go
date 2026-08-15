@@ -3,9 +3,11 @@ package clawless
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -324,11 +326,35 @@ func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
 
 // ── Review Logs ──────────────────────────────────────────────────────
 
+// BuildReviewIdempotencyKey derives the deterministic idempotency key
+// for a security review record:
+//
+//	review:<taskID>:<level>:<decision>:<sha256(command)>
+//
+// The command text is embedded as a SHA-256 digest (hex, truncated)
+// rather than verbatim so oversized commands or sensitive fragments do
+// not leak into keys, while the key stays deterministic across retries.
+// Shared by the gatekeeper (ReviewResult.ReviewLog), the agent loop's
+// stampReviewLogs re-stamping, and the dispatcher's security-alert path
+// so every producer derives identical keys for the same review.
+func BuildReviewIdempotencyKey(taskID, level, decision, command string) string {
+	sum := sha256.Sum256([]byte(command))
+	return fmt.Sprintf("review:%s:%s:%s:%s", taskID, level, decision, hex.EncodeToString(sum[:16]))
+}
+
 func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
 	canonical := make([]map[string]any, 0, len(logs))
 	for _, log := range logs {
 		if log.RunID == "" {
-			return fmt.Errorf("review log %q has no run_id", log.Command)
+			// Skip the malformed entry instead of failing the whole batch:
+			// one record without a trace id must not drop the valid audit
+			// records around it.
+			slog.Warn("skipping review log without run_id",
+				"task_id", log.TaskID,
+				"session_id", log.SessionID,
+				"level", log.Level,
+				"decision", log.Decision)
+			continue
 		}
 		startedAt := log.Timestamp
 		if startedAt.IsZero() {
@@ -336,12 +362,15 @@ func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
 		}
 		idempotencyKey := log.IdempotencyKey
 		if idempotencyKey == "" {
-			idempotencyKey = fmt.Sprintf("review:%s:%s:%s:%s", log.TaskID, log.Level, log.Decision, log.Command)
+			idempotencyKey = BuildReviewIdempotencyKey(log.TaskID, log.Level, log.Decision, log.Command)
 		}
 		canonical = append(canonical, map[string]any{
-			"record_kind":     "span",
-			"trace_id":        log.RunID,
-			"span_id":         "review:" + idempotencyKey,
+			"record_kind": "span",
+			"trace_id":    log.RunID,
+			// idempotencyKey already carries the "review:" prefix (either
+			// from the caller or BuildReviewIdempotencyKey) — prepending
+			// it again used to produce "review:review:..." span ids.
+			"span_id":         idempotencyKey,
 			"parent_span_id":  "model:" + log.RunID + ":0",
 			"source":          "agentd",
 			"type":            "review",
@@ -356,6 +385,10 @@ func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
 			"session_id":      log.SessionID,
 		})
 	}
+	if len(canonical) == 0 {
+		// Everything was skipped — avoid posting an empty batch.
+		return nil
+	}
 	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/review-logs", canonical)
 }
 
@@ -363,7 +396,13 @@ func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityL
 	canonical := make([]map[string]any, 0, len(logs))
 	for _, log := range logs {
 		if log.RunID == "" {
-			return fmt.Errorf("tool activity %q has no run_id", log.ToolName)
+			// Skip the malformed entry instead of failing the whole batch
+			// (mirrors WriteReviewLogs).
+			slog.Warn("skipping tool activity without run_id",
+				"task_id", log.TaskID,
+				"session_id", log.SessionID,
+				"tool_name", log.ToolName)
+			continue
 		}
 		startedAt := log.StartedAt
 		if startedAt.IsZero() {
@@ -381,10 +420,20 @@ func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityL
 		if !log.CompletedAt.IsZero() {
 			completedAt = log.CompletedAt
 		}
+		// The Web reader (lib/core/trace/query.ts) consumes the error
+		// column through canonicalRecord(span.error).message — the wire
+		// convention is an object, never a bare string. Empty errors stay
+		// nil.
+		var errorPayload any
+		if log.Error != "" {
+			errorPayload = map[string]any{"message": log.Error}
+		}
 		canonical = append(canonical, map[string]any{
-			"record_kind":     "span",
-			"trace_id":        log.RunID,
-			"span_id":         "tool:" + idempotencyKey,
+			"record_kind": "span",
+			"trace_id":    log.RunID,
+			// idempotencyKey already carries the "tool:" prefix — do not
+			// prepend it again (used to produce "tool:tool:..." span ids).
+			"span_id":         idempotencyKey,
 			"parent_span_id":  "model:" + log.RunID + ":" + fmt.Sprint(log.Step),
 			"source":          "agentd",
 			"type":            "tool",
@@ -397,7 +446,7 @@ func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityL
 			"agent_id":        log.AgentID,
 			"input":           log.Arguments,
 			"output":          log.Result,
-			"error":           log.Error,
+			"error":           errorPayload,
 			"idempotency_key": idempotencyKey,
 			"metadata": map[string]any{
 				"toolName": log.ToolName, "action": log.Action, "target": log.Target,
@@ -405,6 +454,10 @@ func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityL
 				"toolCallId": log.ToolCallID, "sandboxId": log.SandboxID,
 			},
 		})
+	}
+	if len(canonical) == 0 {
+		// Everything was skipped — avoid posting an empty batch.
+		return nil
 	}
 	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/tool-activity-logs", canonical)
 }

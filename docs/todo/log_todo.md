@@ -59,8 +59,9 @@ structured payload columns.
 - The Web receiver accepts both the legacy callback shape and the canonical
   envelope during the protocol compatibility window, but normalizes both into
   canonical storage only.
-- Agentd callbacks require a propagated `run_id`; uncorrelatable historical
-  security records are not assigned fabricated Trace IDs.
+- Agentd callbacks accept any of `trace_id`/`traceId`/`run_id`/`runId` as
+  the trace identifier (mirroring `normalizeTraceCallback`); uncorrelatable
+  historical security records are not assigned fabricated Trace IDs.
 - Duplicate callbacks are suppressed by canonical idempotency constraints.
 - Bump the agentd version when the callback contract changes.
 - Run the matching SDK drift generators for Web, Workflow, and agentd shapes.

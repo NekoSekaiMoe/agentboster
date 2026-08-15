@@ -328,22 +328,33 @@ export async function startWorkflow(input: {
   logger.info('startWorkflow:run_obtained', { runId: run.runId });
 
   const sessionBeforeUpdate = await getSession(input.sessionId);
-  await ensureTraceRun({
-    traceId: run.runId,
-    spanId: `run:${run.runId}`,
-    source: input.source.type,
-    type: 'run',
-    status: 'running',
-    userId:
-      'userId' in input.source
-        ? (input.source.userId ?? sessionBeforeUpdate?.userId)
-        : sessionBeforeUpdate?.userId,
-    sessionId: input.sessionId,
-    workspaceId: sessionBeforeUpdate?.workspaceId,
-    input: { model: input.requestModel ?? sessionBeforeUpdate?.model },
-    metadata: { producer: 'workflow.dispatch' },
-    idempotencyKey: `run:${run.runId}`,
-  });
+  // Trace ingestion is isolated: a canonical-trace write failure must
+  // never block the run from actually starting (updateSession /
+  // patchWorkflowRuntime below are the load-bearing writes).
+  try {
+    await ensureTraceRun({
+      traceId: run.runId,
+      spanId: `run:${run.runId}`,
+      source: input.source.type,
+      type: 'run',
+      status: 'running',
+      userId:
+        'userId' in input.source
+          ? (input.source.userId ?? sessionBeforeUpdate?.userId)
+          : sessionBeforeUpdate?.userId,
+      sessionId: input.sessionId,
+      workspaceId: sessionBeforeUpdate?.workspaceId,
+      input: { model: input.requestModel ?? sessionBeforeUpdate?.model },
+      metadata: { producer: 'workflow.dispatch' },
+      idempotencyKey: `run:${run.runId}`,
+    });
+  } catch (err) {
+    logger.warn('startWorkflow:trace_run_write_failed', {
+      sessionId: input.sessionId,
+      runId: run.runId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   await updateSession(input.sessionId, {
     workflowRunId: run.runId,
@@ -354,7 +365,7 @@ export async function startWorkflow(input: {
       // /lang) and other fields (contextUsage, latestApproval, …). This
       // was the root cause of IM users' language resetting to English
       // after every message (which calls startWorkflow).
-      ...(await getSession(input.sessionId)).metadata,
+      ...(sessionBeforeUpdate ?? (await getSession(input.sessionId)))?.metadata,
       source: input.source,
     },
   });

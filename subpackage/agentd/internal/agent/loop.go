@@ -125,18 +125,22 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 
 		// Security validation: check LLM output for injection/leak patterns
 		if llmResp.Content != "" && l.gatekeeper != nil {
-			auditResult, auditLogs := l.gatekeeper.AuditOutput(
-				ctx,
-				llmResp.Content,
-				l.agentCtx.SessionSummary,
-				l.agentCtx.TaskID,
-				l.agentCtx.SessionID,
-				l.agentCtx.RunID,
-			)
+			auditResult, auditLogs := l.gatekeeper.AuditOutput(ctx, security.OutputAuditContext{
+				Output:         llmResp.Content,
+				SessionSummary: l.agentCtx.SessionSummary,
+				TaskID:         l.agentCtx.TaskID,
+				SessionID:      l.agentCtx.SessionID,
+				RunID:          l.agentCtx.RunID,
+			})
 			stampReviewLogs(auditLogs, l.agentCtx)
-			if len(auditLogs) > 0 && l.agentCtx.RunID != "" {
-				if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
-					log.Warn("failed to write output audit logs", "error", err)
+			if len(auditLogs) > 0 {
+				if l.agentCtx.RunID != "" {
+					if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
+						log.Warn("failed to write output audit logs", "error", err)
+					}
+				} else {
+					log.Warn("output audit produced review logs but session has no run_id; output review records skipped",
+						"session_id", l.agentCtx.SessionID, "log_count", len(auditLogs))
 				}
 			}
 			if auditResult.Decision == "blocked" {
@@ -241,9 +245,14 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 		}
 		auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)
 		stampReviewLogs(auditLogs, l.agentCtx)
-		if len(auditLogs) > 0 && l.agentCtx.RunID != "" {
-			if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
-				l.agentCtx.Log().Warn("failed to write tool audit logs", "error", err)
+		if len(auditLogs) > 0 {
+			if l.agentCtx.RunID != "" {
+				if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
+					l.agentCtx.Log().Warn("failed to write tool audit logs", "error", err)
+				}
+			} else {
+				l.agentCtx.Log().Warn("tool audit produced review logs but session has no run_id; output review records skipped",
+					"session_id", l.agentCtx.SessionID, "log_count", len(auditLogs))
 			}
 		}
 		if auditResult.Decision != security.DecisionAllowed {
@@ -271,8 +280,10 @@ func stampReviewLogs(logs []clawless.ReviewLog, agentCtx *AgentContext) {
 		if logs[i].TaskID == "00000000-0000-0000-0000-000000000000" {
 			logs[i].TaskID = ""
 		}
+		taskIDChanged := false
 		if logs[i].TaskID == "" && agentCtx.TaskID != "" {
 			logs[i].TaskID = agentCtx.TaskID
+			taskIDChanged = true
 		}
 		if logs[i].SessionID == "" {
 			logs[i].SessionID = agentCtx.SessionID
@@ -280,9 +291,14 @@ func stampReviewLogs(logs []clawless.ReviewLog, agentCtx *AgentContext) {
 		if logs[i].RunID == "" {
 			logs[i].RunID = agentCtx.RunID
 		}
-		if logs[i].IdempotencyKey == "" {
-			logs[i].IdempotencyKey = fmt.Sprintf(
-				"review:%s:%s:%s:%s",
+		// Unconditionally rebuild the idempotency key when the task id was
+		// normalized: the gatekeeper baked the placeholder/empty task id
+		// into the key at ReviewLog() construction time, and a stale key
+		// would make the same audit record collide with (or diverge from)
+		// its canonical identity. Uses the shared BuildReviewIdempotencyKey
+		// so the format matches the gatekeeper's exactly.
+		if taskIDChanged || logs[i].IdempotencyKey == "" {
+			logs[i].IdempotencyKey = clawless.BuildReviewIdempotencyKey(
 				logs[i].TaskID,
 				logs[i].Level,
 				logs[i].Decision,

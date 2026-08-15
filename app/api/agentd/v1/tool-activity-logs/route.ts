@@ -1,7 +1,9 @@
 export const dynamic = 'force-dynamic';
 
-import { ingestAgentdTraceCallback } from '@/lib/core/trace/receiver';
-import { normalizeTraceCallback } from '@/lib/core/trace/protocol';
+import {
+  ingestTraceCallbackBatch,
+  normalizeTraceCallbackBatch,
+} from '../trace-callbacks';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.tool-activity-logs');
@@ -9,26 +11,21 @@ const logger = createLogger('api.agentd.tool-activity-logs');
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const items = Array.isArray(body) ? body : [body];
-    const callbacks = items.map(normalizeTraceCallback);
-    if (
-      callbacks.some(
-        (item) =>
-          !item || item.kind !== 'span' || !item.envelope.type.startsWith('tool'),
-      )
-    ) {
+    const normalized = normalizeTraceCallbackBatch(body, 'tool');
+    if ('error' in normalized) {
       return Response.json(
-        { success: false, error: 'Invalid canonical tool callback' },
+        { success: false, error: normalized.error },
         { status: 400 },
       );
     }
-    const rows = await Promise.all(
-      callbacks.map((item) => ingestAgentdTraceCallback(item!)),
-    );
-    return Response.json({
-      success: true,
-      data: rows,
-    });
+    const outcome = await ingestTraceCallbackBatch(normalized.callbacks);
+    if (outcome.body.success === false) {
+      logger.error('tool activity log write failed', {
+        error: outcome.body.error,
+      });
+      return Response.json(outcome.body, { status: outcome.status });
+    }
+    return Response.json(outcome.body, { status: outcome.status });
   } catch (error) {
     logger.error('tool activity log write failed', {
       error: error instanceof Error ? error.message : String(error),

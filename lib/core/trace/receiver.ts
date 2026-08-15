@@ -1,6 +1,5 @@
 import {
   deriveSessionIdentity,
-  deriveTaskIdentity,
   getTask,
   resolveAgentdResourceAccess,
 } from '@/lib/core/db/agentd';
@@ -15,6 +14,11 @@ import type { NormalizedTraceCallback } from './protocol';
 /**
  * Ingest a canonical agentd callback after resolving its owner from the
  * server-side task/session rows. `user_id` in the wire payload is ignored.
+ *
+ * `resolveAgentdResourceAccess` keeps the 400/403/404 access semantics, but
+ * it does not return the task/identity it resolved. To avoid re-deriving
+ * them, we fetch the task once and reuse its sessionId to derive the
+ * session identity, preserving the old role semantics.
  */
 export async function ingestAgentdTraceCallback(
   callback: NormalizedTraceCallback,
@@ -24,9 +28,14 @@ export async function ingestAgentdTraceCallback(
     sessionId: callback.sessionId,
   });
   const task = callback.taskId ? await getTask(callback.taskId) : null;
-  const identity = callback.taskId
-    ? await deriveTaskIdentity(callback.taskId)
-    : await deriveSessionIdentity(callback.sessionId);
+  // Roles come from the SESSION identity (user-level roles), matching the
+  // previous `deriveTaskIdentity` semantics. The task row already carries
+  // sessionId, so one `getTask` + one `deriveSessionIdentity` replaces the
+  // old triple query (resolveAgentdResourceAccess -> getTask ->
+  // deriveTaskIdentity -> deriveSessionIdentity).
+  const identity = await deriveSessionIdentity(
+    task?.sessionId ?? callback.sessionId,
+  );
   const envelope: TraceEnvelopeBase = {
     ...callback.envelope,
     userId: access.userId,

@@ -1,5 +1,8 @@
 import { requireAuthAccess } from '@/lib/auth/access';
-import { listCanonicalToolSpans } from '@/lib/core/trace/dal';
+import {
+  CANONICAL_QUERY_LIMIT_MAX,
+  listCanonicalToolSpans,
+} from '@/lib/core/trace/dal';
 import { createLogger } from '@/lib/utils/logger';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -12,6 +15,16 @@ function parseLimit(value: string | null): number {
     return 500;
   }
   return Math.min(Math.max(Math.trunc(parsed), 1), 1000);
+}
+
+/**
+ * Tri-state outcome: terminal `completed` → true, terminal `failed` → false,
+ * any non-terminal status (running/pending/…) → null ("unknown").
+ */
+function outcomeSuccess(status: string): boolean | null {
+  if (status === 'completed') return true;
+  if (status === 'failed') return false;
+  return null;
 }
 
 export async function GET(request: Request) {
@@ -31,9 +44,26 @@ export async function GET(request: Request) {
     const to = searchParams.get('to');
     const limit = parseLimit(searchParams.get('limit'));
 
+    const fromAt = from ? new Date(from) : null;
+    if (from && (!fromAt || Number.isNaN(fromAt.getTime()))) {
+      return NextResponse.json(
+        { error: 'Invalid "from" timestamp' },
+        { status: 400 },
+      );
+    }
+    const toAt = to ? new Date(to) : null;
+    if (to && (!toAt || Number.isNaN(toAt.getTime()))) {
+      return NextResponse.json(
+        { error: 'Invalid "to" timestamp' },
+        { status: 400 },
+      );
+    }
+
+    // listCanonicalToolSpans only pushes userId/limit down (and truncates by
+    // startedAt desc), so filters and the sort below align on startedAt too.
     const canonicalRows = await listCanonicalToolSpans({
       userId: access.isAdmin ? undefined : access.session.userId,
-      limit: 10000,
+      limit: CANONICAL_QUERY_LIMIT_MAX,
     });
     const logs = canonicalRows
       .map((row) => {
@@ -58,7 +88,7 @@ export async function GET(request: Request) {
             typeof metadata.outputText === 'string'
               ? metadata.outputText
               : null,
-          success: row.status !== 'failed',
+          success: outcomeSuccess(String(row.status)),
           error:
             row.error && typeof row.error === 'object' && 'message' in row.error
               ? String((row.error as { message?: unknown }).message ?? '')
@@ -85,13 +115,15 @@ export async function GET(request: Request) {
         if (taskId && log.taskId !== taskId) return false;
         if (sessionId && log.sessionId !== sessionId) return false;
         if (agentId && log.agentId !== agentId) return false;
-        if (success === 'true' && !log.success) return false;
-        if (success === 'false' && log.success) return false;
-        if (from && log.createdAt < new Date(from)) return false;
-        if (to && log.createdAt > new Date(to)) return false;
+        // Non-terminal rows (success === null) never match an explicit
+        // success=true/false filter — unknown is not "failed".
+        if (success === 'true' && log.success !== true) return false;
+        if (success === 'false' && log.success !== false) return false;
+        if (fromAt && log.startedAt < fromAt) return false;
+        if (toAt && log.startedAt > toAt) return false;
         return true;
       })
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
       .slice(0, limit);
     return NextResponse.json(logs);
   } catch (error) {

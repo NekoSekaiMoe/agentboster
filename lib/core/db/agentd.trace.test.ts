@@ -184,4 +184,110 @@ describe('agentd trace propagation', () => {
       2,
     );
   });
+
+  it('keeps both trace_spans rows when toolCallId/toolName/startedAt collide across tasks', async () => {
+    const otherTaskId = '00000000-0000-0000-0000-000000000003';
+    await harness.db.execute(sql`
+      INSERT INTO "agent_tasks" (
+        "id", "agent_id", "session_id", "user_id", "command"
+      ) VALUES (
+        ${otherTaskId}::uuid, 'main', ${sessionId}::uuid, 'user-1', 'ls -la'
+      )
+    `);
+
+    const startedAt = '2026-08-14T01:00:00.000Z';
+    const records = await writeToolActivityLogs([
+      {
+        run_id: 'run-collide',
+        task_id: taskId,
+        tool_call_id: 'call_dup',
+        tool_name: 'read',
+        action: 'read',
+        success: true,
+        started_at: startedAt,
+        completed_at: '2026-08-14T01:00:00.010Z',
+      },
+      {
+        run_id: 'run-collide',
+        task_id: otherTaskId,
+        tool_call_id: 'call_dup',
+        tool_name: 'read',
+        action: 'read',
+        success: true,
+        started_at: startedAt,
+        completed_at: '2026-08-14T01:00:00.010Z',
+      },
+    ]);
+    expect(records).toHaveLength(2);
+
+    const rows = (
+      await harness.db.execute(
+        sql`SELECT "span_id", "task_id", "type"
+            FROM "trace_spans" WHERE "trace_id" = 'run-collide'`,
+      )
+    ).rows as Array<{ span_id: string; task_id: string; type: string }>;
+    // unique (trace_id, span_id) did not reject the second insert and both
+    // records landed as distinct spans.
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.type === 'tool')).toBe(true);
+    expect(new Set(rows.map((row) => row.span_id)).size).toBe(2);
+    expect(new Set(rows.map((row) => row.task_id))).toEqual(
+      new Set([taskId, otherTaskId]),
+    );
+  });
+
+  it('is idempotent when the same callback batch is replayed with the same idempotency keys', async () => {
+    const toolBatch = [
+      {
+        run_id: 'run-web-1',
+        session_id: sessionId,
+        agent_id: 'main',
+        tool_name: 'read',
+        action: 'read',
+        success: true,
+        started_at: '2026-08-14T00:00:00.000Z',
+        completed_at: '2026-08-14T00:00:00.050Z',
+      },
+    ];
+    const reviewBatch = [
+      {
+        run_id: 'run-web-1',
+        task_id: taskId,
+        command: 'read README.md',
+        level: 'L0',
+        score: 0,
+        decision: 'allowed',
+      },
+    ];
+
+    const firstTool = await writeToolActivityLogs(toolBatch);
+    const firstReview = await writeReviewLogs(reviewBatch);
+    expect(firstTool[0].idempotencyKey).toBeTruthy();
+    expect(firstReview[0].idempotencyKey).toBeTruthy();
+
+    const replayTool = await writeToolActivityLogs(toolBatch);
+    const replayReview = await writeReviewLogs(reviewBatch);
+    // Replays return the same records, not new ones.
+    expect(replayTool[0].id).toBe(firstTool[0].id);
+    expect(replayReview[0].id).toBe(firstReview[0].id);
+
+    const rows = (
+      await harness.db.execute(
+        sql`SELECT "type", "trace_id", "status", "idempotency_key"
+            FROM "trace_spans" ORDER BY "type"`,
+      )
+    ).rows as Array<{
+      type: string;
+      trace_id: string;
+      status: string;
+      idempotency_key: string;
+    }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.type)).toEqual(['review', 'tool']);
+    expect(rows.every((row) => row.trace_id === 'run-web-1')).toBe(true);
+    expect(new Set(rows.map((row) => row.idempotency_key)).size).toBe(2);
+    // Review spans now carry a lifecycle status instead of the decision.
+    const reviewRow = rows.find((row) => row.type === 'review');
+    expect(reviewRow?.status).toBe('completed');
+  });
 });

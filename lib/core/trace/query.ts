@@ -3,6 +3,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/lib/core/db';
 import { sessions } from '@/lib/core/db/schema';
 import {
+  CANONICAL_QUERY_LIMIT_MAX,
   getCanonicalTraceRun,
   listCanonicalTraceEvents,
   listCanonicalTraceRuns,
@@ -59,7 +60,13 @@ function canonicalStatus(status: string): TraceStatusHint['workflowStatus'] {
 
 function canonicalEventKind(type: string): TraceEvent['kind'] {
   if (type === 'model' || type.startsWith('model.')) return 'model';
-  if (type === 'review' || type.startsWith('security.')) return 'review';
+  if (
+    type === 'review' ||
+    type.startsWith('review.') ||
+    type.startsWith('security.')
+  ) {
+    return 'review';
+  }
   return 'tool';
 }
 
@@ -107,11 +114,22 @@ async function loadCanonicalRows(
     : [];
   const sessionTitles = new Map(sessionRows.map((row) => [row.id, row.title]));
 
+  const spansByTrace = new Map<string, typeof spans>();
+  for (const span of spans) {
+    const group = spansByTrace.get(span.traceId) ?? [];
+    group.push(span);
+    spansByTrace.set(span.traceId, group);
+  }
+  const eventsByTrace = new Map<string, typeof storedEvents>();
+  for (const event of storedEvents) {
+    const group = eventsByTrace.get(event.traceId) ?? [];
+    group.push(event);
+    eventsByTrace.set(event.traceId, group);
+  }
+
   return runs.map((run) => {
-    const runSpans = spans.filter((span) => span.traceId === run.traceId);
-    const runEvents = storedEvents.filter(
-      (event) => event.traceId === run.traceId,
-    );
+    const runSpans = spansByTrace.get(run.traceId) ?? [];
+    const runEvents = eventsByTrace.get(run.traceId) ?? [];
     const hint: TraceStatusHint = {
       workflowStatus: canonicalStatus(run.status),
       currentRunId:
@@ -175,7 +193,11 @@ async function loadCanonicalRows(
           sequence: Number(span.sequence),
           hint,
         });
-      } else if (span.type === 'review' || span.type.startsWith('security.')) {
+      } else if (
+        span.type === 'review' ||
+        span.type.startsWith('review.') ||
+        span.type.startsWith('security.')
+      ) {
         reviews.push({
           id: span.id,
           traceId: run.traceId,
@@ -245,9 +267,16 @@ export async function listTraces(
   scope: TraceQueryScope,
   options: TraceListOptions = {},
 ): Promise<TraceSummary[]> {
+  // The DAL cannot push arbitrary search terms down (only trace_id ILIKE),
+  // so widen the candidate pool and keep the in-memory filter + sort + slice.
+  const candidateLimit = Math.min(
+    Math.max(compactLimit(options.limit) * 4, 500),
+    CANONICAL_QUERY_LIMIT_MAX,
+  );
   const runs = await listCanonicalTraceRuns({
     userId: scope.userId,
-    limit: compactLimit(options.limit),
+    search: options.search,
+    limit: candidateLimit,
   });
   const rows = await loadCanonicalRows(
     runs.map((run) => run.traceId),

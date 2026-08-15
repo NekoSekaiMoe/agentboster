@@ -249,6 +249,13 @@ function eventStatus(events: TraceEvent[]): TraceStatus {
     : 'completed';
 }
 
+function groupSequence(group: TraceModelRow[]): number | undefined {
+  const sequences = group
+    .map((row) => row.sequence)
+    .filter((value): value is number => typeof value === 'number');
+  return sequences.length ? Math.min(...sequences) : undefined;
+}
+
 function buildModelEvents(
   traceId: string,
   rows: TraceModelRow[],
@@ -297,9 +304,7 @@ function buildModelEvents(
         totalTokens,
         rowCount: group.length,
       },
-      sequence: Math.min(
-        ...group.map((row) => row.sequence ?? Number.MAX_SAFE_INTEGER),
-      ),
+      sequence: groupSequence(group),
     } satisfies TraceEvent;
   });
 }
@@ -366,12 +371,6 @@ function buildReviewEvents(
   });
 }
 
-function eventRank(kind: TraceEvent['kind']): number {
-  if (kind === 'model') return 0;
-  if (kind === 'review') return 1;
-  return 2;
-}
-
 export function buildTraceEvents(rows: TraceRows): TraceEvent[] {
   return [
     ...buildModelEvents(rows.traceId, rows.models ?? []),
@@ -382,12 +381,20 @@ export function buildTraceEvents(rows: TraceRows): TraceEvent[] {
     if (left.sequence !== undefined && right.sequence !== undefined) {
       const sequenceDiff = left.sequence - right.sequence;
       if (sequenceDiff !== 0) return sequenceDiff;
+    }
+    if (
+      left.sequence !== undefined &&
+      right.sequence !== undefined &&
+      left.sequence === right.sequence
+    ) {
+      // Identical sequence keys: stable id tiebreak.
       return left.id.localeCompare(right.id);
     }
+    // Missing sequence on either side (legacy rows): startedAt ordering,
+    // then id for stability.
     const timeDiff = left.startedAt.localeCompare(right.startedAt);
-    return timeDiff !== 0
-      ? timeDiff
-      : eventRank(left.kind) - eventRank(right.kind);
+    if (timeDiff !== 0) return timeDiff;
+    return left.id.localeCompare(right.id);
   });
 }
 

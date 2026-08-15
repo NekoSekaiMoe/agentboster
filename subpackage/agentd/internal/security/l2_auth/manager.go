@@ -297,15 +297,29 @@ func (m *L2AuthManager) ClearSession(sessionID string) {
 	slog.Info("L2 session cleared", "session_id", sessionID, "entries", removedEntries, "pending", removedPending)
 }
 
-// ExpireStale removes expired entries and writes review logs for each.
-// Returns the list of expired entries for further processing (e.g., session archive).
+// expiredAudit carries the audit context for one expired L2 entry from
+// the locked scan to the post-unlock I/O in writeExpiredAudits. log is
+// nil when no correlatable run id was found for the entry's session.
+type expiredAudit struct {
+	log     *clawless.ReviewLog
+	userID  string
+	session string
+	pattern string
+	action  string
+	expires time.Time
+}
+
+// ExpireStale removes expired entries and writes audit records for each.
+// When a run id captured for the entry's session is available, the expiry is
+// submitted as a canonical review log via the clawless client; otherwise a
+// structured slog.Warn (userId/sessionId/reason) is emitted so the expiry is
+// never silent. Returns the list of expired entries for further processing
+// (e.g., session archive).
 func (m *L2AuthManager) ExpireStale() []ExpiredEntry {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	now := time.Now()
 	expired := make([]ExpiredEntry, 0)
-
+	audits := make([]expiredAudit, 0)
 	for key, entry := range m.entries {
 		if now.After(entry.ExpiresAt) {
 			expired = append(expired, ExpiredEntry{
@@ -315,14 +329,80 @@ func (m *L2AuthManager) ExpireStale() []ExpiredEntry {
 				ExpiresAt: entry.ExpiresAt,
 			})
 			delete(m.entries, key)
+
+			// Capture the audit context while the lock is held (reads
+			// pendingRunIDs / clawless safely); I/O happens after unlock.
+			audit := expiredAudit{
+				userID:  entry.CacheKey.UserID,
+				session: entry.SessionID,
+				pattern: entry.Pattern,
+				action:  entry.Action,
+				expires: entry.ExpiresAt,
+			}
+			if taskID, runID := m.runIDForSessionLocked(entry.SessionID); runID != "" {
+				audit.log = &clawless.ReviewLog{
+					TaskID:         taskID,
+					SessionID:      entry.SessionID,
+					RunID:          runID,
+					Command:        entry.Pattern,
+					Level:          "L2",
+					Score:          0,
+					Decision:       "expired",
+					Reason:         fmt.Sprintf("L2 authorization expired (action=%s, expires_at=%s)", entry.Action, entry.ExpiresAt.Format(time.RFC3339)),
+					IdempotencyKey: clawless.BuildReviewIdempotencyKey(taskID, "L2", "expired", entry.Pattern),
+					Timestamp:      now,
+				}
+			}
+			audits = append(audits, audit)
 		}
 	}
+	client := m.clawless
+	m.mu.Unlock()
 
-	if len(expired) > 0 {
-		slog.Info("L2 auth entries expired", "count", len(expired))
+	if len(expired) == 0 {
+		return expired
 	}
-
+	slog.Info("L2 auth entries expired", "count", len(expired))
+	m.writeExpiredAudits(client, audits)
 	return expired
+}
+
+// runIDForSessionLocked looks up a run id captured for a pending L2 decision
+// in the given session. Caller must hold m.mu.
+func (m *L2AuthManager) runIDForSessionLocked(sessionID string) (taskID, runID string) {
+	for tid, cacheKey := range m.pending {
+		if cacheKey.SessionID != sessionID {
+			continue
+		}
+		if rid, ok := m.pendingRunIDs[tid]; ok && rid != "" {
+			return tid, rid
+		}
+	}
+	return "", ""
+}
+
+// writeExpiredAudits submits expiry audit records: canonical review logs
+// when both a log and client are available, otherwise a structured warn so
+// the expiry leaves a trace even without a correlatable run id.
+func (m *L2AuthManager) writeExpiredAudits(client *clawless.Client, audits []expiredAudit) {
+	for _, a := range audits {
+		if a.log != nil && client != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := client.WriteReviewLogs(ctx, []clawless.ReviewLog{*a.log}); err != nil {
+				slog.Warn("failed to write L2 expiry review log",
+					"session_id", a.session, "pattern", a.pattern, "error", err)
+			}
+			cancel()
+			continue
+		}
+		slog.Warn("L2 authorization expired without audit trace",
+			"user_id", a.userID,
+			"session_id", a.session,
+			"reason", fmt.Sprintf("L2 authorization expired (action=%s, expires_at=%s); no run_id available for canonical review log", a.action, a.expires.Format(time.RFC3339)),
+			"pattern", a.pattern,
+			"action", a.action,
+		)
+	}
 }
 
 // ExpiredEntry holds information about an expired authorization.

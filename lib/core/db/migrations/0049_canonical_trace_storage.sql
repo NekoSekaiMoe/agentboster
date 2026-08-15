@@ -89,4 +89,5 @@ CREATE INDEX "trace_runs_workspace_started_idx" ON "trace_runs" USING btree ("wo
 CREATE UNIQUE INDEX "trace_spans_trace_span_uniq" ON "trace_spans" USING btree ("trace_id","span_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "trace_spans_idempotency_uniq" ON "trace_spans" USING btree ("trace_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "trace_spans_trace_sequence_idx" ON "trace_spans" USING btree ("trace_id","sequence","span_id");--> statement-breakpoint
-CREATE INDEX "trace_spans_user_started_idx" ON "trace_spans" USING btree ("user_id","started_at");
+CREATE INDEX "trace_spans_user_started_idx" ON "trace_spans" USING btree ("user_id","started_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "trace_runs_started_trace_idx" ON "trace_runs" USING btree ("started_at" DESC,"trace_id" DESC);

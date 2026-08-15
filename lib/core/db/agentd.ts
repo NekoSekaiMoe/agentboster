@@ -347,6 +347,18 @@ function normalizeToolAction(value: string | undefined): ToolActivityAction {
   return (value && allowed.has(value) ? value : 'other') as ToolActivityAction;
 }
 
+/** Deterministic short FNV-1a hash (base-36) used to disambiguate span IDs
+ *  built from colliding toolCallId/toolName/startedAt tuples. Pure JS on
+ *  purpose: this module must stay free of top-level `node:*` imports. */
+function shortHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function formatTaskForAgentd(task: AgentdTask) {
   return {
     id: task.id,
@@ -438,6 +450,36 @@ export async function getTask(id: string) {
     source: task.sessionId
       ? identity.source
       : (identity.source ?? normalizeSource(task.source)),
+  };
+}
+
+/** Single entry point for callers (e.g. the trace receiver) that need both
+ *  the task row and its derived identity: one task select plus one
+ *  `deriveTaskIdentity`, without the duplicate derivation a
+ *  `getTask` + `deriveTaskIdentity` pair would perform. Returns a null task
+ *  (and an empty identity) when the task row does not exist. */
+export async function resolveTaskWithIdentity(taskId: string): Promise<{
+  task: Awaited<ReturnType<typeof getTask>>;
+  identity: Awaited<ReturnType<typeof deriveTaskIdentity>>;
+}> {
+  const [raw] = await db
+    .select()
+    .from(agentTasks)
+    .where(eq(agentTasks.id, taskId));
+  const identity = await deriveTaskIdentity(taskId);
+  if (!raw) {
+    return { task: null, identity };
+  }
+  return {
+    task: {
+      ...raw,
+      userId: raw.sessionId ? identity.userId : (identity.userId ?? raw.userId),
+      roles: identity.roles,
+      source: raw.sessionId
+        ? identity.source
+        : (identity.source ?? normalizeSource(raw.source)),
+    },
+    identity,
   };
 }
 
@@ -585,6 +627,7 @@ export async function writeReviewLogs(
     string,
     Awaited<ReturnType<typeof deriveTaskIdentity>>
   >();
+  const taskCache = new Map<string, Awaited<ReturnType<typeof getTask>>>();
 
   async function identityFor(taskId: string) {
     const cached = identityCache.get(taskId);
@@ -592,6 +635,14 @@ export async function writeReviewLogs(
     const identity = await deriveTaskIdentity(taskId);
     identityCache.set(taskId, identity);
     return identity;
+  }
+
+  async function taskFor(taskId: string) {
+    const cached = taskCache.get(taskId);
+    if (cached !== undefined) return cached;
+    const task = await getTask(taskId);
+    taskCache.set(taskId, task);
+    return task;
   }
 
   return Promise.all(
@@ -605,39 +656,48 @@ export async function writeReviewLogs(
           `Trace id is required for security review ${taskId || log.command}`,
         );
       }
-      const task = taskId ? await getTask(taskId) : null;
+      const task = taskId ? await taskFor(taskId) : null;
       const decision = normalizeDecision(log.decision);
       const score = normalizeScore(log.score);
-      return (
-        await ingestTraceSpan({
-          traceId,
-          spanId: `review:${taskId || 'unknown'}:${log.level}:${log.command}`,
-          parentSpanId: `model:${traceId}:0`,
-          source: 'agentd',
-          type: 'review',
-          status: decision,
-          startedAt: new Date(),
-          completedAt: new Date(),
-          durationMs: 0,
-          userId: identity.userId,
-          sessionId: task?.sessionId ?? null,
-          taskId: taskId || null,
-          workspaceId: task?.workspaceId ?? null,
-          agentId: task?.agentId ?? null,
-          output: { decision, score, reason: log.reason ?? null },
-          metadata: {
-            level: log.level,
-            decision,
-            score,
-            reason: log.reason ?? null,
-            command: log.command,
-          },
-          idempotencyKey:
-            log.idempotencyKey ??
-            log.idempotency_key ??
-            `review:${taskId}:${log.level}:${decision}:${log.command}`,
-        })
-      ).record;
+      const span = await ingestTraceSpan({
+        traceId,
+        spanId: `review:${taskId || 'unknown'}:${log.level}:${log.command}`,
+        // The real parent span is not knowable from a review callback
+        // (there is no guaranteed `model:<trace>:<step>` row for it), so
+        // the span attaches to the trace root instead of a fabricated parent.
+        parentSpanId: null,
+        source: 'agentd',
+        type: 'review',
+        // The decision stays queryable via output.decision and
+        // metadata.decision; span status must be a lifecycle value.
+        status: 'completed',
+        startedAt: new Date(),
+        completedAt: new Date(),
+        durationMs: 0,
+        userId: identity.userId,
+        sessionId: task?.sessionId ?? null,
+        taskId: taskId || null,
+        workspaceId: task?.workspaceId ?? null,
+        agentId: task?.agentId ?? null,
+        output: { decision, score, reason: log.reason ?? null },
+        metadata: {
+          level: log.level,
+          decision,
+          score,
+          reason: log.reason ?? null,
+          command: log.command,
+        },
+        idempotencyKey:
+          log.idempotencyKey ??
+          log.idempotency_key ??
+          `review:${taskId}:${log.level}:${decision}:${log.command}`,
+      });
+      if (!span) {
+        throw new Error(
+          `Review span for ${taskId || log.command} was not persisted`,
+        );
+      }
+      return span.record;
     }),
   );
 }
@@ -671,6 +731,15 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
     string,
     Awaited<ReturnType<typeof deriveSessionIdentity>>
   >();
+  const taskCache = new Map<string, Awaited<ReturnType<typeof getTask>>>();
+
+  async function taskFor(taskId: string) {
+    const cached = taskCache.get(taskId);
+    if (cached !== undefined) return cached;
+    const task = await getTask(taskId);
+    taskCache.set(taskId, task);
+    return task;
+  }
 
   async function identityFor(input: ToolActivityLogInput) {
     const taskId = input.taskId ?? input.task_id ?? '';
@@ -768,49 +837,58 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
           `Trace id is required for tool activity ${value.toolCallId ?? value.toolName}`,
         );
       }
-      const task = value.taskId ? await getTask(value.taskId) : null;
+      const task = value.taskId ? await taskFor(value.taskId) : null;
       const original = logs[index];
       const startedAt = value.startedAt;
       const completedAt = value.completedAt;
-      return (
-        await ingestTraceSpan({
-          traceId: value.traceId,
-          spanId: `tool:${value.toolCallId ?? value.toolName}:${startedAt.getTime()}`,
-          parentSpanId:
-            value.step !== null && value.step !== undefined
-              ? `model:${value.traceId}:${value.step}`
-              : null,
-          source: 'agentd',
-          type: 'tool',
-          status: value.success ? 'completed' : 'failed',
-          startedAt,
-          completedAt,
-          durationMs: value.durationMs,
-          userId: value.userId,
-          sessionId: value.sessionId,
-          taskId: value.taskId,
-          workspaceId: task?.workspaceId,
-          agentId: value.agentId,
-          input: value.arguments,
-          output: value.result,
-          error: value.error ? { message: value.error } : null,
-          metadata: {
-            toolName: value.toolName,
-            action: value.action,
-            target: value.target,
-            outputText: value.outputText,
-            model: value.model,
-            step: value.step,
-            toolCallId: value.toolCallId,
-            sandboxId: value.sandboxId,
-            source: value.source,
-          },
-          idempotencyKey:
-            original.idempotencyKey ??
-            original.idempotency_key ??
-            `tool:${value.taskId ?? value.sessionId ?? 'unknown'}:${value.toolCallId ?? value.toolName}:${startedAt.toISOString()}`,
-        })
-      ).record;
+      const idempotencyKey =
+        original.idempotencyKey ??
+        original.idempotency_key ??
+        `tool:${value.taskId ?? value.sessionId ?? 'unknown'}:${value.toolCallId ?? value.toolName}:${startedAt.toISOString()}`;
+      const record = await ingestTraceSpan({
+        traceId: value.traceId,
+        // toolCallId/toolName/startedAt can repeat across records (and even
+        // across tasks) while `unique (trace_id, span_id)` is enforced, so
+        // the idempotency-key hash keeps spanId unique per record while
+        // staying stable across retries of the same record.
+        spanId: `tool:${value.toolCallId ?? value.toolName}:${startedAt.getTime()}:${shortHash(idempotencyKey)}`,
+        parentSpanId:
+          value.step !== null && value.step !== undefined
+            ? `model:${value.traceId}:${value.step}`
+            : null,
+        source: 'agentd',
+        type: 'tool',
+        status: value.success ? 'completed' : 'failed',
+        startedAt,
+        completedAt,
+        durationMs: value.durationMs,
+        userId: value.userId,
+        sessionId: value.sessionId,
+        taskId: value.taskId,
+        workspaceId: task?.workspaceId,
+        agentId: value.agentId,
+        input: value.arguments,
+        output: value.result,
+        error: value.error ? { message: value.error } : null,
+        metadata: {
+          toolName: value.toolName,
+          action: value.action,
+          target: value.target,
+          outputText: value.outputText,
+          model: value.model,
+          step: value.step,
+          toolCallId: value.toolCallId,
+          sandboxId: value.sandboxId,
+          source: value.source,
+        },
+        idempotencyKey,
+      });
+      if (!record) {
+        throw new Error(
+          `Tool activity span for ${value.toolCallId ?? value.toolName} was not persisted`,
+        );
+      }
+      return record.record;
     }),
   );
 }
