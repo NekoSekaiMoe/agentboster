@@ -127,7 +127,7 @@ function scopeId(scope: object): number {
 function registryKey(kind: string, scope?: object): string {
   // NUL separator: kinds never contain it, so scoped keys can't collide with
   // global ones.
-  return scope ? `${scopeId(scope)} ${kind}` : kind;
+  return scope ? `${scopeId(scope)}\0${kind}` : kind;
 }
 
 function registry(): Map<string, ObservationProvider> {

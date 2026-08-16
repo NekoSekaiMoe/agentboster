@@ -17,7 +17,7 @@ import {
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification';
-import { html, render, type TemplateResult } from 'lit';
+import { html, nothing, render, type TemplateResult } from 'lit';
 import { rpcBridge } from '../rpc/bridge.js';
 
 /**
@@ -1034,7 +1034,7 @@ export class ExtensionUiHandler {
     const texts = [...this.statusByKey.values()];
     if (texts.length === 0) {
       this.statusContainer.classList.add('hidden');
-      this.statusContainer.innerHTML = '';
+      render(nothing, this.statusContainer);
       return;
     }
     this.statusContainer.classList.remove('hidden');
@@ -1058,7 +1058,7 @@ export class ExtensionUiHandler {
       .filter((line) => Boolean(line) && !shouldSuppressUiStatusText(line));
     if (lines.length === 0) {
       container.classList.add('hidden');
-      container.innerHTML = '';
+      render(nothing, container);
     } else {
       container.classList.remove('hidden');
       render(
@@ -1115,7 +1115,7 @@ export class ExtensionUiHandler {
   private closeOverlay(): void {
     if (!this.overlayContainer) return;
     this.overlayContainer.classList.add('hidden');
-    this.overlayContainer.innerHTML = '';
+    render(nothing, this.overlayContainer);
   }
 
   private async sendResponse(
