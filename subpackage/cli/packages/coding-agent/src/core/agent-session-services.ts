@@ -22,6 +22,8 @@ import type { StreamFn } from '@agentboster-cli/agent';
 import type { SessionManager } from './session-manager.ts';
 import { SettingsManager } from './settings-manager.ts';
 import advisorExtension from '../extensions/advisor/index.ts';
+import extraCmdExtension from '../extensions/extra-cmd/index.ts';
+import smartFlowExtension from '../extensions/smart-flow/index.ts';
 import type { ExtensionFactory } from './extensions/index.ts';
 
 const _require = createRequire(import.meta.url);
@@ -33,6 +35,7 @@ function resolveBuiltinExtensionPaths(): string[] {
     'pi-simplify',
     'pi-web-search',
     '@feniix/pi-sequential-thinking',
+    '@narumitw/pi-subagents',
   ];
   for (const pkg of packages) {
     try {
@@ -190,9 +193,14 @@ export async function createAgentSessionServices(
     ...builtinPaths,
     ...(passthrough.additionalExtensionPaths ?? []),
   ];
-  // The advisor extension lives in-tree, so it is registered as a factory
-  // rather than resolved from node_modules like the npm-installed extensions.
-  const builtinFactories: ExtensionFactory[] = [advisorExtension];
+  // The advisor, extra-cmd, and smart-flow extensions live in-tree, so they
+  // are registered as factories rather than resolved from node_modules like
+  // the npm-installed extensions.
+  const builtinFactories: ExtensionFactory[] = [
+    advisorExtension,
+    extraCmdExtension,
+    smartFlowExtension,
+  ];
   const mergedExtensionFactories = [
     ...builtinFactories,
     ...(passthrough.extensionFactories ?? []),

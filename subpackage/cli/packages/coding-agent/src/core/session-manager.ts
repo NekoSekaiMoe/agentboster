@@ -257,6 +257,8 @@ export type ReadonlySessionManager = Pick<
   | 'getBranch'
   | 'getHeader'
   | 'getEntries'
+  | 'buildContextEntries'
+  | 'buildSessionContext'
   | 'getTree'
   | 'getSessionName'
 >;
@@ -386,6 +388,137 @@ export function getLatestCompactionEntry(
 }
 
 /**
+ * Build the active, compaction-aware session entry list.
+ *
+ * This follows the current leaf path. If the path contains compaction entries,
+ * the latest compaction is represented by the compaction entry itself, followed
+ * by the kept entries starting at firstKeptEntryId and all entries after the
+ * compaction entry. Older summarized entries are omitted.
+ *
+ * Unlike buildSessionContext(), this returns raw entries (including display-only
+ * entries such as 'custom'), for transcript rendering.
+ */
+export function buildContextEntries(
+  entries: SessionEntry[],
+  leafId?: string | null,
+  byId?: Map<string, SessionEntry>,
+): SessionEntry[] {
+  // Build uuid index if not available
+  if (!byId) {
+    byId = new Map<string, SessionEntry>();
+    for (const entry of entries) {
+      byId.set(entry.id, entry);
+    }
+  }
+
+  // Find leaf
+  let leaf: SessionEntry | undefined;
+  if (leafId === null) {
+    // Explicitly null - return no entries (navigated to before first entry)
+    return [];
+  }
+  if (leafId) {
+    leaf = byId.get(leafId);
+  }
+  if (!leaf) {
+    // Fallback to last entry (when leafId is undefined)
+    leaf = entries[entries.length - 1];
+  }
+
+  if (!leaf) {
+    return [];
+  }
+
+  // Walk from leaf to root, collecting path
+  const path: SessionEntry[] = [];
+  let current: SessionEntry | undefined = leaf;
+  while (current) {
+    path.push(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  path.reverse();
+
+  let compaction: CompactionEntry | null = null;
+  for (const entry of path) {
+    if (entry.type === 'compaction') {
+      compaction = entry;
+    }
+  }
+
+  if (!compaction) {
+    return path;
+  }
+
+  const compactionIdx = path.findIndex((entry) => entry.id === compaction?.id);
+  if (compactionIdx < 0) {
+    return path;
+  }
+
+  const contextEntries: SessionEntry[] = [compaction];
+  let foundFirstKept = false;
+  for (let i = 0; i < compactionIdx; i++) {
+    const entry = path[i];
+    if (entry.id === compaction.firstKeptEntryId) {
+      foundFirstKept = true;
+    }
+    if (foundFirstKept) {
+      contextEntries.push(entry);
+    }
+  }
+  contextEntries.push(...path.slice(compactionIdx + 1));
+  return contextEntries;
+}
+
+/**
+ * Convert a session entry into the AgentMessages it contributes to LLM context.
+ * Display-only entries (custom, labels, ...) contribute nothing.
+ */
+export function sessionEntryToContextMessages(
+  entry: SessionEntry,
+): AgentMessage[] {
+  if (entry.type === 'message') {
+    const message = entry.message;
+    // Session files are parsed without validation; old versions, forks, or
+    // hand-edited files can contain messages with null/missing content.
+    if (
+      (message.role === 'user' ||
+        message.role === 'assistant' ||
+        message.role === 'toolResult') &&
+      message.content == null
+    ) {
+      return [{ ...message, content: [] }];
+    }
+    return [message];
+  }
+  if (entry.type === 'custom_message') {
+    return [
+      createCustomMessage(
+        entry.customType,
+        entry.content ?? [],
+        entry.display,
+        entry.details,
+        entry.timestamp,
+      ),
+    ];
+  }
+  if (entry.type === 'branch_summary' && entry.summary) {
+    return [
+      createBranchSummaryMessage(entry.summary, entry.fromId, entry.timestamp),
+    ];
+  }
+  if (entry.type === 'compaction') {
+    return [
+      createCompactionSummaryMessage(
+        entry.summary,
+        entry.tokensBefore,
+        entry.timestamp,
+      ),
+    ];
+  }
+  return [];
+}
+
+/**
  * Build the session context from entries using tree traversal.
  * If leafId is provided, walks from that entry to root.
  * Handles compaction and branch summaries along the path.
@@ -457,28 +590,14 @@ export function buildSessionContext(
   // 3. Emit messages after compaction
   const messages: AgentMessage[] = [];
 
+  // Reuse sessionEntryToContextMessages so both context paths normalize
+  // entries identically (null/missing content -> empty array, custom_message
+  // content fallback). Compaction entries are handled explicitly below
+  // (summary first, then kept messages) — older compactions on the path must
+  // not re-emit their summaries here.
   const appendMessage = (entry: SessionEntry) => {
-    if (entry.type === 'message') {
-      messages.push(entry.message);
-    } else if (entry.type === 'custom_message') {
-      messages.push(
-        createCustomMessage(
-          entry.customType,
-          entry.content,
-          entry.display,
-          entry.details,
-          entry.timestamp,
-        ),
-      );
-    } else if (entry.type === 'branch_summary' && entry.summary) {
-      messages.push(
-        createBranchSummaryMessage(
-          entry.summary,
-          entry.fromId,
-          entry.timestamp,
-        ),
-      );
-    }
+    if (entry.type === 'compaction') return;
+    messages.push(...sessionEntryToContextMessages(entry));
   };
 
   if (compaction) {
@@ -1235,6 +1354,14 @@ export class SessionManager {
     }
     path.reverse();
     return path;
+  }
+
+  /**
+   * Build the compaction-aware entry list for the current leaf path.
+   * Unlike buildSessionContext(), includes display-only entries (custom, ...).
+   */
+  buildContextEntries(): SessionEntry[] {
+    return buildContextEntries(this.getEntries(), this.leafId, this.byId);
   }
 
   /**

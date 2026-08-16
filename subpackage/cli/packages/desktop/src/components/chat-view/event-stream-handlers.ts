@@ -243,6 +243,29 @@ export function handleMessageStreamEvent(
           context.scrollToBottom();
           return true;
         }
+        if (
+          customType === 'bash-bg-complete' ||
+          customType === 'bash-bg-running'
+        ) {
+          // smart-flow background bash job notifications (completion wake-up
+          // and post-compaction reminder). Render the full body — it carries
+          // the command, exit code, and output tail the user needs to see.
+          const text = content.trim();
+          if (text) {
+            const exitCode =
+              typeof details?.exitCode === 'number' ? details.exitCode : null;
+            context.attachOrphanToolResult(
+              customType,
+              text,
+              customType === 'bash-bg-complete' &&
+                exitCode !== null &&
+                exitCode !== 0,
+            );
+            context.render();
+            context.scrollToBottom();
+          }
+          return true;
+        }
       }
 
       return true;

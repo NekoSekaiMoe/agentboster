@@ -6,6 +6,7 @@ export { BorderedLoader } from './bordered-loader.ts';
 export { BranchSummaryMessageComponent } from './branch-summary-message.ts';
 export { CompactionSummaryMessageComponent } from './compaction-summary-message.ts';
 export { CustomEditor } from './custom-editor.ts';
+export { CustomEntryComponent } from './custom-entry.ts';
 export { CustomMessageComponent } from './custom-message.ts';
 export { type RenderDiffOptions, renderDiff } from './diff.ts';
 export { DynamicBorder } from './dynamic-border.ts';

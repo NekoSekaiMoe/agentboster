@@ -37,6 +37,7 @@ import type {
   ExtensionAPI,
   ExtensionFactory,
   ExtensionRuntime,
+  EntryRenderer,
   LoadExtensionsResult,
   MessageRenderer,
   ProviderConfig,
@@ -61,6 +62,7 @@ const VIRTUAL_MODULES: Record<string, unknown> = {
   '@agentboster-cli/ai/compat': _bundledPiAiCompat,
   '@agentboster-cli/core': _bundledPiCodingAgent,
   '@mariozechner/pi-agent-core': _bundledPiAgentCore,
+  '@earendil-works/pi-agent-core': _bundledPiAgentCore,
   '@mariozechner/pi-tui': _bundledPiTui,
   '@mariozechner/pi-ai': _bundledPiAiCompat,
   '@mariozechner/pi-ai/compat': _bundledPiAiCompat,
@@ -84,7 +86,22 @@ function getAliases(): Record<string, string> {
   if (_aliases) return _aliases;
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const packageIndex = path.resolve(__dirname, '../..', 'index.js');
+  // In the dev/dist layout, loader.js sits at dist/core/extensions/, so
+  // ../../index.js is the package's own entry. In the single-file CJS bundle
+  // that path math lands outside the package — fall back to resolving the
+  // workspace package (which, in the bundle, is the CLI's own node_modules
+  // copy of the built package or the bundle's real dist neighbor).
+  let packageIndex = path.resolve(__dirname, '../..', 'index.js');
+  if (!fs.existsSync(packageIndex)) {
+    try {
+      packageIndex = require.resolve('@agentboster-cli/core', {
+        conditions: new Set(['import']),
+      } as never);
+    } catch {
+      // keep the (missing) relative path; the error will surface on first
+      // extension load with an actionable message
+    }
+  }
 
   const typeboxEntry = require.resolve('typebox');
   const typeboxCompileEntry = require.resolve('typebox/compile');
@@ -99,7 +116,20 @@ function getAliases(): Record<string, string> {
     if (fs.existsSync(workspacePath)) {
       return workspacePath;
     }
-    return fileURLToPath(import.meta.resolve(specifier));
+    // createRequire().resolve() instead of import.meta.resolve: in the CJS
+    // bundle, esbuild lowers import.meta to an empty object (var import_meta = {}),
+    // so import.meta.resolve throws "import_meta.resolve is not a function".
+    // createRequire(import.meta.url) is defined-shimmed to __filename by the
+    // bundle banner and resolves identically in both Node ESM and CJS modes.
+    // The Set(['import']) conditions mirror ESM resolution semantics: the
+    // workspace packages' exports maps only declare import conditions, which
+    // plain CJS require.resolve refuses to match.
+    return require.resolve(
+      specifier,
+      // Node >= 22.15 accepts an ESM-conditions set; @types/node lags behind,
+      // hence the cast.
+      { conditions: new Set(['import']) } as never,
+    );
   };
 
   const piCodingAgentEntry = packageIndex;
@@ -127,6 +157,7 @@ function getAliases(): Record<string, string> {
     '@agentboster-cli/ai/compat': piAiCompatEntry,
     '@mariozechner/pi-coding-agent': piCodingAgentEntry,
     '@mariozechner/pi-agent-core': piAgentCoreEntry,
+    '@earendil-works/pi-agent-core': piAgentCoreEntry,
     '@mariozechner/pi-tui': piTuiEntry,
     '@mariozechner/pi-ai': piAiCompatEntry,
     '@mariozechner/pi-ai/compat': piAiCompatEntry,
@@ -317,6 +348,14 @@ function createExtensionAPI(
       extension.messageRenderers.set(customType, renderer as MessageRenderer);
     },
 
+    registerEntryRenderer<T>(
+      customType: string,
+      renderer: EntryRenderer<T>,
+    ): void {
+      runtime.assertActive();
+      extension.entryRenderers.set(customType, renderer as EntryRenderer);
+    },
+
     // Flag access - checks extension registered it, reads from runtime
     getFlag(name: string): boolean | string | undefined {
       runtime.assertActive();
@@ -475,6 +514,7 @@ function createExtension(
     handlers: new Map(),
     tools: new Map(),
     messageRenderers: new Map(),
+    entryRenderers: new Map(),
     commands: new Map(),
     flags: new Map(),
     shortcuts: new Map(),

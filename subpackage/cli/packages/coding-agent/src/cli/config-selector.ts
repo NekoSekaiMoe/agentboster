@@ -2,7 +2,7 @@
  * TUI config selector for `pi config` command
  */
 
-import { ProcessTerminal, TUI } from '@agentboster-cli/tui';
+import { ProcessTerminal, TuiMainScreen } from '@agentboster-cli/tui';
 import type { ResolvedPaths } from '../core/package-manager.ts';
 import type { SettingsManager } from '../core/settings-manager.ts';
 import { ConfigSelectorComponent } from '../modes/interactive/components/config-selector.ts';
@@ -26,7 +26,7 @@ export async function selectConfig(
   initTheme(options.settingsManager.getTheme(), true);
 
   return new Promise((resolve) => {
-    const ui = new TUI(new ProcessTerminal());
+    const ui = new TuiMainScreen(new ProcessTerminal());
     let resolved = false;
 
     const selector = new ConfigSelectorComponent(

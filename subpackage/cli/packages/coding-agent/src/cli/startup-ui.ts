@@ -1,4 +1,9 @@
-import { ProcessTerminal, setKeybindings, TUI } from '@agentboster-cli/tui';
+import {
+  ProcessTerminal,
+  setKeybindings,
+  TuiMainScreen,
+  type TUI,
+} from '@agentboster-cli/tui';
 import { existsSync } from 'fs';
 import {
   APP_NAME,
@@ -103,7 +108,7 @@ export async function createStartupTui(
       terminalTheme,
   );
   setKeybindings(KeybindingsManager.create());
-  const ui = new TUI(
+  const ui = new TuiMainScreen(
     new ProcessTerminal(),
     settingsManager.getShowHardwareCursor(),
   );

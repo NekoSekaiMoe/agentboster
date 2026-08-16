@@ -11,6 +11,7 @@ export * from './types.ts';
 export * from './models.ts';
 export { modelsAreEqual } from './compat.ts';
 export * from './utils/event-stream.ts';
+export * from './utils/typebox-helpers.ts';
 export type {
   OAuthCredentials,
   OAuthLoginCallbacks,
