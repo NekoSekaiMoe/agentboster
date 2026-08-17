@@ -351,6 +351,13 @@
       "when": 1786724384792,
       "tag": "0049_canonical_trace_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1786943217009,
+      "tag": "0050_fat_shen",
+      "breakpoints": true
     }
   ]
 }

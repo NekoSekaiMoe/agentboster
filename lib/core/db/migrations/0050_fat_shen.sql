@@ -1,0 +1,1 @@
+CREATE INDEX "trace_runs_started_trace_idx" ON "trace_runs" USING btree ("started_at" DESC NULLS LAST,"trace_id" DESC NULLS LAST);

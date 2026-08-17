@@ -83,11 +83,11 @@ END $$;--> statement-breakpoint
 -- 5) Backfill: one default workspace per user that has none. Atomic per
 --    owner via the workspaces_owner_default_uniq partial unique index.
 INSERT INTO "workspaces" ("owner_id", "name", "status", "is_default")
-SELECT u.id, '默认工作区', 'active', true
+SELECT u.id::text, '默认工作区', 'active', true
 FROM "users" u
 WHERE NOT EXISTS (
   SELECT 1 FROM "workspaces" w
-  WHERE w."owner_id" = u.id AND w."is_default" = true
+  WHERE w."owner_id" = u.id::text AND w."is_default" = true
 )
 ON CONFLICT ("owner_id") WHERE is_default = true DO NOTHING;--> statement-breakpoint
 
@@ -115,8 +115,8 @@ WITH owner_ws AS (
 )
 UPDATE "agent_tasks" t
 SET "workspace_id" = COALESCE(
-  (SELECT workspace_id FROM owner_ws ow WHERE ow."owner_id" = t."user_id"),
-  (SELECT workspace_id FROM owner_ws ow
+  (SELECT ow.workspace_id FROM owner_ws ow WHERE ow."owner_id" = t."user_id"),
+  (SELECT ow.workspace_id FROM owner_ws ow
      JOIN "sessions" s ON s."id" = t."session_id"
      WHERE ow."owner_id" = s."user_id")
 )

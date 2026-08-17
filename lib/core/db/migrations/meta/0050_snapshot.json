@@ -1,6 +1,6 @@
 {
-  "id": "35b0080d-c234-45b7-8425-b1e9e47de077",
-  "prevId": "8d13631c-618d-4e8d-9c2e-5acff5ec6d01",
+  "id": "0cdb246c-ba38-43b4-9400-7aa0ecec29ab",
+  "prevId": "35b0080d-c234-45b7-8425-b1e9e47de077",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6453,6 +6453,27 @@
               "expression": "started_at",
               "isExpression": false,
               "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "trace_runs_started_trace_idx": {
+          "name": "trace_runs_started_trace_idx",
+          "columns": [
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            },
+            {
+              "expression": "trace_id",
+              "isExpression": false,
+              "asc": false,
               "nulls": "last"
             }
           ],

@@ -97,6 +97,10 @@ async function backfillWorkspaces(): Promise<BackfillCount> {
   // 3. Backfill agent_tasks.workspace_id. Prefer the task's own user_id;
   //    fall back to the session owner when the task row has no user_id
   //    (path-B tasks historically leave it NULL). Tasks with neither stay NULL.
+  // NB: every workspace_id in the subselects must be qualified with
+  // `ow.` — the second subselect joins `sessions`, which ALSO has a
+  // workspace_id column, so the bare reference is ambiguous
+  // (error: scanRTEForColumn, "column reference is ambiguous").
   const tasksResult = await query<{ count: number }>(`
     WITH owner_ws AS (
       SELECT DISTINCT ON (owner_id) id AS workspace_id, owner_id
@@ -105,8 +109,8 @@ async function backfillWorkspaces(): Promise<BackfillCount> {
     )
     UPDATE agent_tasks t
     SET workspace_id = COALESCE(
-      (SELECT workspace_id FROM owner_ws ow WHERE ow.owner_id = t.user_id),
-      (SELECT workspace_id FROM owner_ws ow
+      (SELECT ow.workspace_id FROM owner_ws ow WHERE ow.owner_id = t.user_id),
+      (SELECT ow.workspace_id FROM owner_ws ow
          JOIN sessions s ON s.id = t.session_id
          WHERE ow.owner_id = s.user_id)
     )
