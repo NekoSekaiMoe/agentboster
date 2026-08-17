@@ -15,7 +15,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useI18n } from '@/components/i18n-provider';
-import { useConfigContext } from '@/components/config/config-provider';
+import { useIdentity } from '@/hooks/use-identity';
 import { parseWithFallback } from '@/lib/core/api/schema';
 import { z } from 'zod';
 import { ChevronsUpDown, Plus, Layers, Settings2, Globe } from 'lucide-react';
@@ -106,8 +106,10 @@ export function WorkspaceSwitcher() {
   // account change) does NOT reuse the previous user's cached workspace
   // list. The server route scopes by cookie-auth identity, so stale data
   // here would show another user's workspaces until staleTime (60s) expires.
-  const configContext = useConfigContext();
-  const currentUserId = configContext?.userId ?? null;
+  // Identity comes from /api/auth/me — ConfigProvider only exists under
+  // /config, so reading useConfigContext() here would permanently disable
+  // this query on chat pages.
+  const { userId: currentUserId } = useIdentity();
 
   const { data: workspaces = [], isLoading } = useQuery<WorkspaceListItem[]>({
     queryKey: ['workspaces', currentUserId],

@@ -20,13 +20,18 @@ const qc = new QueryClient();
 vi.mock('@/components/react-query-provider', () => ({
   getQueryClient: () => qc,
 }));
-// The hook module also imports the server action and config context for
-// the query path — replace them so this test stays client-only.
+// The hook module also imports the server action and the identity hook
+// for the query path — replace them so this test stays client-only.
 vi.mock('@/app/(chat)/actions', () => ({
   listRecentSessionsAction: vi.fn(),
 }));
-vi.mock('@/components/config/config-provider', () => ({
-  useConfigContext: () => null,
+vi.mock('@/hooks/use-identity', () => ({
+  useIdentity: () => ({
+    identity: null,
+    isLoading: false,
+    userId: null,
+    isAdmin: false,
+  }),
 }));
 
 import {

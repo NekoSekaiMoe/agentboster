@@ -3,8 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { listRecentSessionsAction } from '@/app/(chat)/actions';
 import { getQueryClient } from '@/components/react-query-provider';
-import { useConfigContext } from '@/components/config/config-provider';
 import { useActiveWorkspaceStore } from '@/hooks/use-active-workspace-store';
+import { useIdentity } from '@/hooks/use-identity';
 import { useEffect } from 'react';
 
 /**
@@ -142,8 +142,10 @@ export function upsertSessionListItemInCache(
  */
 export function useSessionList(limit = 30) {
   const { workspaceId } = useActiveWorkspace();
-  const config = useConfigContext();
-  const userId = config?.userId ?? null;
+  // Identity comes from /api/auth/me, NOT useConfigContext — ConfigProvider
+  // is only mounted under /config, so chat pages would see a null context
+  // and this query would stay disabled forever (empty sidebar regression).
+  const { userId } = useIdentity();
   return useQuery<SessionListItem[]>({
     queryKey: ['sessions', userId, workspaceId ?? null],
     enabled: !!workspaceId && !!userId,
@@ -178,8 +180,7 @@ export function useActiveWorkspace(): {
   workspaceId: string | null;
   setWorkspaceId: (id: string | null) => void;
 } {
-  const config = useConfigContext();
-  const userId = config?.userId ?? null;
+  const { userId } = useIdentity();
   const workspaceId = useActiveWorkspaceStore((s) => s.workspaceId);
   const setWorkspaceId = useActiveWorkspaceStore((s) => s.setWorkspaceId);
   const setUserId = useActiveWorkspaceStore((s) => s.setUserId);
