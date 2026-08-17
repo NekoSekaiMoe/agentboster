@@ -441,7 +441,7 @@ async function main() {
          JOIN sessions s ON s.id = m.session_id
         WHERE m.payload->'metadata'->>'runId' IS NOT NULL
           AND m.role IN ('assistant', 'tool')
-          AND ($1::text IS NULL OR (m.created_at, m.id) > ($1::timestamptz, $2::text))
+          AND ($1::text IS NULL OR (m.created_at, m.id) > ($1::timestamptz, $2::uuid))
         ORDER BY m.created_at, m.id
         LIMIT ${BACKFILL_BATCH_SIZE}`,
       (row) => `${row.created_at}\u0000${row.id}`,
@@ -470,7 +470,7 @@ async function main() {
               started_at::text, completed_at::text
          FROM agent_tool_activity_logs
         WHERE trace_id IS NOT NULL
-          AND ($1::text IS NULL OR (started_at, id) > ($1::timestamptz, $2::text))
+          AND ($1::text IS NULL OR (started_at, id) > ($1::timestamptz, $2::uuid))
         ORDER BY started_at, id
         LIMIT ${BACKFILL_BATCH_SIZE}`,
       (row) => `${row.started_at}\u0000${row.id}`,
@@ -491,7 +491,7 @@ async function main() {
               score, command, reason, created_at::text
          FROM agent_review_logs
         WHERE trace_id IS NOT NULL
-          AND ($1::text IS NULL OR (created_at, id) > ($1::timestamptz, $2::text))
+          AND ($1::text IS NULL OR (created_at, id) > ($1::timestamptz, $2::uuid))
         ORDER BY created_at, id
         LIMIT ${BACKFILL_BATCH_SIZE}`,
       (row) => `${row.created_at}\u0000${row.id}`,
