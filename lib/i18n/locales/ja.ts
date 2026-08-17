@@ -139,6 +139,36 @@ export const ja = {
   'config.sections.experiments.description':
     'オプトインの実験的機能。デフォルトはオフです。検証中の機能を個別に有効化して試すことができます。',
   'config.sections.experiments.title': '実験的機能',
+  'config.sections.backup.title': 'バックアップと復元',
+  'config.sections.backup.description':
+    '設定とメモリを JSON ファイルとしてエクスポート、または以前のエクスポートから復元します。',
+  'config.backup.export.title': 'エクスポート',
+  'config.backup.export.description':
+    '選択したセクションを JSON ファイルとしてダウンロードします。',
+  'config.backup.export.button': 'エクスポート',
+  'config.backup.export.exporting': 'エクスポート中…',
+  'config.backup.export.redact':
+    'シークレットをマスクする（トークン、API キー、パスワード）',
+  'config.backup.item.config': '設定（モデル、エージェント、チャネルなど）',
+  'config.backup.item.builtinMemories':
+    '組み込みペルソナメモリ（AGENTS/SOUL/IDENTITY/USER）',
+  'config.backup.item.longTermMemories': '長期メモリ',
+  'config.backup.item.l0Rules': 'L0 セキュリティルール',
+  'config.backup.adminOnly':
+    '一部のセクションは管理者アカウントが必要なため無効になっています。',
+  'config.backup.import.title': 'インポート',
+  'config.backup.import.description':
+    '以前にエクスポートした JSON ファイルから復元します。',
+  'config.backup.import.chooseFile': 'エクスポートファイルを選択',
+  'config.backup.import.merge': '既存の設定とマージ（オフで完全置換）',
+  'config.backup.import.button': 'インポート',
+  'config.backup.import.importing': 'インポート中…',
+  'config.backup.import.invalidFile':
+    '無効なエクスポートファイルです：JSON オブジェクトではありません。',
+  'config.backup.import.success': 'インポートが完了しました。',
+  'config.backup.import.failed': 'インポートに失敗しました。',
+  'config.backup.import.noSections':
+    'このファイルにインポート可能なセクションがありません。',
   'config.sections.agents.description':
     '名前付きエージェント、プロンプト、モデルの上書きを設定します。',
   'config.sections.agents.title': 'エージェント',

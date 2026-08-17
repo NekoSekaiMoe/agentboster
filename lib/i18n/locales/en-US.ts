@@ -135,6 +135,35 @@ export const enUS = {
   'config.sections.experiments.description':
     'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
   'config.sections.experiments.title': 'Experiments',
+  'config.sections.backup.title': 'Backup & Restore',
+  'config.sections.backup.description':
+    'Export your settings and memories to a JSON file, or restore them from a previous export.',
+  'config.backup.export.title': 'Export',
+  'config.backup.export.description':
+    'Download the selected sections as a JSON file.',
+  'config.backup.export.button': 'Export',
+  'config.backup.export.exporting': 'Exporting…',
+  'config.backup.export.redact': 'Redact secrets (tokens, API keys, passwords)',
+  'config.backup.item.config': 'Settings (models, agents, channels…)',
+  'config.backup.item.builtinMemories':
+    'Built-in persona memories (AGENTS/SOUL/IDENTITY/USER)',
+  'config.backup.item.longTermMemories': 'Long-term memories',
+  'config.backup.item.l0Rules': 'L0 security rules',
+  'config.backup.adminOnly':
+    'Some sections require an admin account and are disabled.',
+  'config.backup.import.title': 'Import',
+  'config.backup.import.description':
+    'Restore sections from a previously exported JSON file.',
+  'config.backup.import.chooseFile': 'Choose export file',
+  'config.backup.import.merge':
+    'Merge with existing settings (off = full replace)',
+  'config.backup.import.button': 'Import',
+  'config.backup.import.importing': 'Importing…',
+  'config.backup.import.invalidFile': 'Invalid export file: not a JSON object.',
+  'config.backup.import.success': 'Import completed.',
+  'config.backup.import.failed': 'Import failed.',
+  'config.backup.import.noSections':
+    'No importable sections found in this file.',
   'config.sections.agents.description':
     'Configure named agents, prompts, and model overrides.',
   'config.sections.agents.title': 'Agents',

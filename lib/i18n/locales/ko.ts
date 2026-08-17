@@ -139,6 +139,33 @@ export const ko = {
   'config.sections.experiments.description':
     'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
   'config.sections.experiments.title': 'Experiments',
+  'config.sections.backup.title': '백업 및 복원',
+  'config.sections.backup.description':
+    '설정과 메모리를 JSON 파일로보내거나 이전보내기에서 복원합니다.',
+  'config.backup.export.title': '보내기',
+  'config.backup.export.description':
+    '선택한 섹션을 JSON 파일로 다운로드합니다.',
+  'config.backup.export.button': '보내기',
+  'config.backup.export.exporting': '보내는 중…',
+  'config.backup.export.redact': '비밀 정보 가리기(토큰, API 키, 비밀번호)',
+  'config.backup.item.config': '설정(모델, 에이전트, 채널 등)',
+  'config.backup.item.builtinMemories':
+    '기본 페르소나 메모리(AGENTS/SOUL/IDENTITY/USER)',
+  'config.backup.item.longTermMemories': '장기 메모리',
+  'config.backup.item.l0Rules': 'L0 보안 규칙',
+  'config.backup.adminOnly':
+    '일부 섹션은 관리자 계정이 필요하여 비활성화되어 있습니다.',
+  'config.backup.import.title': '가져오기',
+  'config.backup.import.description': '이전에보낸 JSON 파일에서 복원합니다.',
+  'config.backup.import.chooseFile': '보내기 파일 선택',
+  'config.backup.import.merge': '기존 설정과 병합(끄면 전체 교체)',
+  'config.backup.import.button': '가져오기',
+  'config.backup.import.importing': '가져오는 중…',
+  'config.backup.import.invalidFile':
+    '잘못된보내기 파일: JSON 객체가 아닙니다.',
+  'config.backup.import.success': '가져오기가 완료되었습니다.',
+  'config.backup.import.failed': '가져오기에 실패했습니다.',
+  'config.backup.import.noSections': '파일에 가져올 수 있는 섹션이 없습니다.',
   'config.sections.agents.description':
     '이름이 지정된 에이전트, 프롬프트, 모델 재정의를 설정합니다.',
   'config.sections.agents.title': '에이전트',

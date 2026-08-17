@@ -354,7 +354,7 @@ async function main() {
                 session_id,
                 s.user_id,
                 s.workspace_id,
-                created_at AS started_at,
+                m.created_at AS started_at,
                 (m.role = 'assistant'
                  AND (m.payload->>'finishReason') IS NOT NULL) AS has_completion
            FROM messages m

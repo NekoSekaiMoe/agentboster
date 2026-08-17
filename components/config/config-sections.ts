@@ -76,6 +76,13 @@ export const configSections = [
     selfPersisted: true,
   },
   {
+    key: 'backup',
+    descriptionKey: 'config.sections.backup.description',
+    titleKey: 'config.sections.backup.title',
+    // API-driven export/import — no config draft, no floating save button.
+    selfPersisted: true,
+  },
+  {
     key: 'experiments',
     descriptionKey: 'config.sections.experiments.description',
     titleKey: 'config.sections.experiments.title',
