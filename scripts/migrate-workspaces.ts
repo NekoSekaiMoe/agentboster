@@ -55,17 +55,22 @@ async function backfillWorkspaces(): Promise<BackfillCount> {
   //    getOrCreateDefaultWorkspace) can no longer each insert a default —
   //    the second hits the constraint and does nothing. CTE candidate
   //    selection filters to users with no default row at all.
+  // NB: users.id is uuid while workspaces.owner_id is text (the repo's
+  // user_id columns are all text; the app always passes ids as bound
+  // string params so the mismatch never surfaces there). Column-to-column
+  // comparisons/assignments in raw SQL need explicit casts — Postgres has
+  // no `text = uuid` operator (error: op_error, "No operator matches").
   const created = await query<{ id: string; owner_id: string }>(`
     WITH candidates AS (
       SELECT u.id AS user_id
       FROM users u
       WHERE NOT EXISTS (
         SELECT 1 FROM workspaces w
-        WHERE w.owner_id = u.id AND w.is_default = true
+        WHERE w.owner_id = u.id::text AND w.is_default = true
       )
     )
     INSERT INTO workspaces (owner_id, name, status, is_default)
-    SELECT user_id, '默认工作区', 'active', true FROM candidates
+    SELECT user_id::text, '默认工作区', 'active', true FROM candidates
     ON CONFLICT (owner_id) WHERE is_default = true DO NOTHING
     RETURNING id, owner_id
   `);
