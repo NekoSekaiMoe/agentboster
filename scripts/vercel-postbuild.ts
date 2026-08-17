@@ -50,6 +50,17 @@ async function main() {
   console.log('[postbuild] deduplicating global long_term_memories rows');
   await runCommand('npx', ['tsx', 'scripts/dedup-global-memories.ts']);
 
+  // MUST run before `drizzle-kit push --force`: push reconciles BY TABLE
+  // NAME and would try to ALTER a legacy (project-sandbox) `workspaces`
+  // table into the new user-facing shape — the NOT NULL owner_id add
+  // fails on populated tables, and drizzle-kit's pgPush swallows the
+  // error (exits 0), leaving the DB half-migrated so migrate-workspaces.ts
+  // crashes on `w.owner_id`. The rename in migration 0039 is never
+  // executed by push, so perform the split here first. No-ops on fresh
+  // installs and already-split DBs.
+  console.log('[postbuild] ensuring legacy workspaces table split');
+  await runCommand('npx', ['tsx', 'scripts/ensure-workspace-split.ts']);
+
   console.log('[postbuild] pushing Drizzle schema');
   await runCommand('npx', ['drizzle-kit', 'push', '--force']);
 
