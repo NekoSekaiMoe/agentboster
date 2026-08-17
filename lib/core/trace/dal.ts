@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, sql, type SQL } from 'drizzle-orm';
 
 import { db } from '@/lib/core/db';
+import { atomicWriteMode } from '@/lib/core/db/atomic';
 import { traceEvents, traceRuns, traceSpans } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -299,9 +300,23 @@ function eventValues(input: TraceEventInput, sequence: number) {
 }
 
 /**
- * Allocate the sequence and insert the child row in ONE transaction. When the
- * insert loses an idempotency race, the sequence increment is rolled back with
- * the transaction instead of burning a gap.
+ * Allocate the sequence and insert the child row atomically.
+ *
+ * The atomic primitive depends on the active driver (see
+ * `lib/core/db/atomic.ts`):
+ *
+ *   - node-postgres: ONE interactive `db.transaction(tx => …)`. When the
+ *     insert loses an idempotency race, the sequence increment is rolled
+ *     back with the transaction instead of burning a gap.
+ *
+ *   - neon-http: NO interactive transactions (`db.transaction` throws
+ *     "No transactions support in neon-http driver"), and `db.batch`
+ *     cannot express the read-dependent replay check. The three
+ *     statements are issued sequentially on `db` instead: sequence
+ *     allocation is a single atomic `UPDATE ... RETURNING`, and the
+ *     insert carries `onConflictDoNothing`, so idempotency semantics are
+ *     unchanged — the only loss is that a lost idempotency race burns a
+ *     sequence gap instead of rolling the increment back.
  *
  * Drizzle's builder types do not survive `T extends typeof traceSpans |
  * typeof traceEvents` generics across insert/select inference, so the table
@@ -313,6 +328,16 @@ async function ingestChildRecord(
   write: (tx: TraceTx, sequence: number) => Promise<unknown>,
   replayed: (tx: TraceTx) => Promise<unknown>,
 ): Promise<{ record: unknown; duplicate: boolean }> {
+  if (atomicWriteMode() === 'neon') {
+    const sequence = await allocateSequence(traceId, db);
+    const row = await write(db as unknown as TraceTx, sequence);
+    if (row) return { record: row, duplicate: false };
+    const duplicate = await replayed(db as unknown as TraceTx);
+    if (!duplicate)
+      throw new Error(`Trace record replay for ${traceId} was not persisted`);
+    return { record: duplicate, duplicate: true };
+  }
+
   try {
     return await db.transaction(async (tx) => {
       const sequence = await allocateSequence(traceId, tx);

@@ -1,6 +1,7 @@
 import { inArray, lt } from 'drizzle-orm';
 
 import { db } from '@/lib/core/db';
+import { atomicWriteMode } from '@/lib/core/db/atomic';
 import { traceEvents, traceRuns, traceSpans } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -104,9 +105,19 @@ export async function purgeExpiredTraces(
     // TRACE_CLEANUP_BATCH_SIZE runs per transaction, so a large retention
     // backlog drains in bounded chunks instead of one giant lock window.
     for (;;) {
-      const batch = await db.transaction((tx) =>
-        cleanupExpiredTraces(tx, retentionDays),
-      );
+      // node-postgres runs each batch in an interactive transaction so the
+      // FOR UPDATE run-row lock serializes against concurrent ingests.
+      // neon-http has no interactive transactions (db.transaction throws
+      // "No transactions support in neon-http driver"); the deletes are
+      // idempotent, so the batch runs directly on db — the residual race
+      // (a span ingested mid-sweep may outlive its run until the next
+      // sweep) is acceptable for best-effort retention cleanup.
+      const batch =
+        atomicWriteMode() === 'neon'
+          ? await cleanupExpiredTraces(db, retentionDays)
+          : await db.transaction((tx) =>
+              cleanupExpiredTraces(tx, retentionDays),
+            );
       totals.events += batch.events;
       totals.spans += batch.spans;
       totals.runs += batch.runs;
