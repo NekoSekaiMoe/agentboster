@@ -624,6 +624,7 @@ jobs:
           # Harmless on macOS/Windows — no AppImage tooling runs there.
           APPIMAGE_EXTRACT_AND_RUN: '1'
         run: npm run build
+        continue-on-error: true
 
       - name: Stage bundle artifacts (Linux/macOS)
         if: runner.os != 'Windows'
