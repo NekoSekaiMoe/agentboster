@@ -503,6 +503,13 @@ jobs:
         # xdg-utils provides /usr/bin/xdg-open, which Tauri's AppImage
         # bundler symlinks into the AppDir (AppImage runtime uses it to
         # open URLs/files).
+        # libfuse2 is required to RUN linuxdeploy (itself an AppImage):
+        # Ubuntu 24.04 images no longer preinstall it — notably the
+        # ubuntu-24.04-arm image, where its absence fails AppImage
+        # bundling with a bare "failed to run linuxdeploy" (deb/rpm are
+        # unaffected, which is exactly the failure signature). On noble
+        # the real package is libfuse2t64; libfuse2 exists only as a
+        # transitional alias on some images, so try both.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -526,6 +533,7 @@ jobs:
             libegl-dev \
             libgbm-dev \
             xdg-utils
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
 
       - name: Install npm dependencies
         # desktop ships yarn.lock (not package-lock.json); use yarn to
@@ -609,6 +617,12 @@ jobs:
           ARTIFACT_DIR: ${{ github.workspace }}/subpackage/cli/packages/desktop/sidecar-stage/mcp
           CLI_STAGED_DIR: ${{ github.workspace }}/subpackage/cli/packages/desktop/sidecar-stage/cli
           TARGET: ${{ matrix.rust_target }}
+          # linuxdeploy and the appimage plugin are themselves AppImages;
+          # this makes them extract-and-run instead of FUSE-mounting, so
+          # bundling works even if the runner kernel/FUSE setup can't
+          # mount AppImages (belt-and-suspenders alongside libfuse2).
+          # Harmless on macOS/Windows — no AppImage tooling runs there.
+          APPIMAGE_EXTRACT_AND_RUN: '1'
         run: npm run build
 
       - name: Stage bundle artifacts (Linux/macOS)

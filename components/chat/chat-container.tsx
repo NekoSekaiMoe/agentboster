@@ -988,12 +988,6 @@ export function Chat({
     setComposerFocusKey((current) => current + 1);
   }, []);
 
-  const handleAbort = useCallback(() => {
-    setSessionState((prev) =>
-      prev ? { ...prev, status: 'aborted' as const } : prev,
-    );
-  }, []);
-
   const deleteAccessDeniedSession = useCallback(async () => {
     setIsDeletingAccessDeniedSession(true);
 
@@ -1079,9 +1073,6 @@ export function Chat({
           className="relative flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background"
         >
           <ChatHeader
-            isRunning={isLoading}
-            chatId={id}
-            onAbort={handleAbort}
             allowedModels={allowedModels}
             onSelectModel={setSelectedModel}
             selectedModel={selectedModel}

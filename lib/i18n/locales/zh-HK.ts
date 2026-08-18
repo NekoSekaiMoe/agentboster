@@ -7,7 +7,6 @@ export const zhHK = {
     '選擇導覽、設定及通用控制項使用的介面語言。',
   'auth.signOutError': '登出失敗，請再試。',
   'chat.noConversations': '暫無對話',
-  'chatHeader.agentdOnlineTitle': 'Agent Daemon 在線 - 已啟用完整安全審查',
   'common.openNavigation': '開啟導覽選單',
   'config.runtime.description':
     '在缺少的環境變數完成設定前，部分伺服器功能會以降級狀態執行。',

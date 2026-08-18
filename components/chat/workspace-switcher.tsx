@@ -88,8 +88,9 @@ function WorkspaceStatusDot({
 }
 
 /**
- * Workspace switcher for the chat header. Sits in the right-side gap-2
- * group, before the status dot. Switching the active workspace navigates
+ * Workspace switcher for the chat header. The sole right-side affordance
+ * (the status dot and abort button were removed; stopping a run lives in
+ * the composer). Switching the active workspace navigates
  * to a fresh chat root (so the session list re-loads under the new scope)
  * and invalidates the session list query.
  *
@@ -198,11 +199,18 @@ export function WorkspaceSwitcher() {
   }
 
   if (isLoading || !active) {
-    // Reserve layout space while loading; never collapse the header.
+    // Reserve layout space while loading; render the same button shell
+    // (disabled) so the header doesn't shift once the list arrives.
     return (
-      <div className="flex size-5 items-center justify-center">
-        <Layers className="size-3.5 text-muted-foreground/50" />
-      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled
+        className="h-7 gap-1 px-2 font-medium text-muted-foreground/50 text-xs"
+        aria-label={t('workspace.switch')}
+      >
+        <Layers className="size-3.5" />
+      </Button>
     );
   }
 
