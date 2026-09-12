@@ -21,6 +21,6 @@
     "@agentboster-cli/ai": "^0.1.0"
   },
   "devDependencies": {
-    "vitest": "4.1.9"
+    "vitest": "4.1.11"
   }
 }

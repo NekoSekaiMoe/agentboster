@@ -1,15 +1,29 @@
 {
   "version": 1,
   "skills": {
+    "add-adapter": {
+      "source": "vercel/chat",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/add-adapter/SKILL.md",
+      "computedHash": "e1656598317fec29de630bb560ed8508eb6cba81e7a1bce838071567f7ad6085"
+    },
     "ai-sdk": {
       "source": "vercel/ai",
       "sourceType": "github",
-      "computedHash": "58ce68f628890c3925aea2b5435a649251ac182057541045c68fc19a27aaa0ec"
+      "skillPath": "skills/use-ai-sdk/SKILL.md",
+      "computedHash": "0883204d11b055e968dee697c5858e68064c27dfd4deb6310212895daa65c5ad"
     },
     "chat-sdk": {
       "source": "vercel/chat",
       "sourceType": "github",
-      "computedHash": "cdd25b149ccf824b029644cff565d04dd49f1743bb1a5e8a649a3adfe82e977c"
+      "skillPath": "skills/chat/SKILL.md",
+      "computedHash": "dd2e9e18aa536e4f2625a6830247e4f593ba0c65ba7527365c18375c2cc618bd"
+    },
+    "migrate-ai-sdk-v6-to-v7": {
+      "source": "vercel/ai",
+      "sourceType": "github",
+      "skillPath": "skills/migrate-ai-sdk-v6-to-v7/SKILL.md",
+      "computedHash": "92a68769c5a82e6bd35cb8fe13537a80f6341742306d6a23c52afb6c1f7b5ab9"
     },
     "next-best-practices": {
       "source": "vercel-labs/next-skills",
@@ -30,6 +44,12 @@
       "source": "vercel/workflow",
       "sourceType": "github",
       "computedHash": "1b2310ae65a52ef542cb5070286fd51eeeee9fb36ba4e99a1a19bd3f50e88885"
+    },
+    "write-notes-like-deepseek": {
+      "source": "czm15053/write-notes-like-deepseek",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "2b3893a84b3c2169da4370dace3a3168f9793c3226bd1ef04082adad001be840"
     }
   }
 }
