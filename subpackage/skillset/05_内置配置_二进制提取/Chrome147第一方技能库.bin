@@ -1,0 +1,2838 @@
+
+‹
+$78c9384d-e07a-4122-8ef3-f71551737094Summarize as text
+Understand"üìù*ÛObjective: Analyze the current webpage and generate a concise summary
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+    * If content seems elided or behind a login screen, mention that your summary may not be complete.
+
+2. **Key takeaway selection**: If you find meaningful content, summarize no more than 5 standalone insights that:
+
+    * Can be understood without reading the full article
+    * Represent distinct points (not variations of the same idea)
+    * Prioritize facts, findings, or actionable information over background context
+    * Prioritize meaningful content. The objective is to provide content important to the user.
+
+3. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+4. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+
+5. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    Include two sections in your response:
+    * **Overview**: no more than 2 sentences (~50 words) answering "What is this?" and "Why does it matter?"
+    * **Key takeaways**: No more than 5 bullet points (~20 words each), each a complete standalone thought. Optimize for scanability by identifying a short label that summarizes the bullet. Display it in bold before the rest of the explanation.
+2DFinds the core argument and identifies key takeaways from a webpage.BBhttps://www.gstatic.com/chrome/skills/images/summarize_as_text.pngRSummarizeAsText
+ˇ
+$fab8dd2c-16e5-4401-a090-68a542d421c0Explain simply
+Understand"üë∂*óObjective: Transform complex content into a simple explanation a 5 year old could understand
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+
+2. **Assess complexity**
+
+    * Identify technical terms, jargon, or specialized vocabulary
+    * Note assumed knowledge or prerequisites
+
+3. **Make abstract concepts concrete with analogies**
+
+    * Connect to everyday experiences (for example, playground, kitchen, family)
+    * Use physical objects to represent abstract ideas
+    * Create simple cause-and-effect relationships
+
+4. **Rewrite using language accessible to a kindergarten student**
+
+    * Replace jargon with common words
+    * Shorten sentences to one idea each
+    * Use active voice and present tense
+    * Avoid hedging words like "might", "perhaps", and "arguably"
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    Your final response should also be:
+    * 3-5 short paragraphs
+    * Under 200 words total
+    * No jargon or technical terms
+    * At least one concrete analogy
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2ISimplifies complex text, using analogies suited for a kindergarten level.8B?https://www.gstatic.com/chrome/skills/images/explain_simply.pngRExplainSimply
+ﬂ
+$c454bcce-a2e0-45a1-a171-18e384a09749Create an outline
+Understand"üèóÔ∏è*‰Objective: Create a structured outline for an essay
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+
+2. **Map the logical flow of the content**
+
+    * Identify major sections or shifts in topic
+    * Find supporting arguments for each main point
+    * Note evidence types used (data, examples, expert opinion, logic)
+
+3. **Organize into outline format**
+
+    * Place the thesis at the top as the primary idea
+    * Group related points under 3-5 main sections
+    * Add 2-3 supporting points under each main section
+    * Ensure each point is a complete phrase, not just a topic word
+
+4. **Identify the closing argument**
+
+    * Find how the author ties the conclusion back to the thesis
+    * Note any calls to action or implications
+    * Identify and articulate the "so what" of the argument
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    Your final response should include these sections:
+
+    * **Thesis statement**: One sentence capturing the central argument
+    * **I, II, III...**: Main sections with descriptive headings
+    * **A, B, C...**: Supporting points as complete phrases
+    * **Conclusion**: Summary that connects back to thesis
+    * Total length: no more than 300 words
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2SDevelops a framework to organize the main ideas and supporting points for an essay.BBhttps://www.gstatic.com/chrome/skills/images/create_an_outline.pngRCreateAnOutline
+÷
+$15512a16-9f22-4914-8d22-c51f3bf4facbAction items
+Understand"‚úÖ*ıObjective: Summarize tasks, owners, and deadlines
+
+1. **Identify the central point of the content**
+
+    * Look for action verbs often related to an office, like create, send, review, schedule, follow up
+    * Identify commitments made, like "I will", "we agreed", and "action item"
+    * Note requests or assignments like "please", "can you", and "you'll need to"
+
+2. **Determine who is responsible for a task**
+
+    * Find names associated with tasks
+    * Identify role-based assignments like "engineering will..." or "the team should..."
+
+3. **Identify deadlines**
+
+    * Find explicit dates or times
+    * Convert relative references like "by Friday" and "next week" to specific dates when possible
+    * Note urgency indicators like "ASAP", "before the meeting", and "blocker"
+
+4. **Identify resolved items**
+
+    * Identify conclusions reached, like "we decided", "agreed", and "approved"
+    * Note what was explicitly rejected or deferred
+    * Identify items that need follow-up confirmation
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    Your final response should follow these guidelines:
+
+    * If there are action items, a table with this formatting:
+    * For long bullet lists, optimize for scanability by identifying a short label that summarizes the bullet. Display it in bold before the rest of the explanation.
+
+    | Action Item | Owner | Deadline | Status |
+    | ----- | ----- | ----- | ----- |
+    | [Specific task] | [Name or "Not specified"] | [Date or "Not specified"] | [Open/Blocked/Waiting] |
+
+    * If the content includes decisions made, add a section with this formatting:
+    **Decisions made**
+
+    * [Decision 1]
+    * [Decision 2]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2IScans text for tasks and generates a list of actions, owners, and status.8B=https://www.gstatic.com/chrome/skills/images/action_items.pngRActionItems
+ﬁ
+$0a9bd775-da85-413a-935f-6490b33ad7f3Quotes
+Understand"üí¨*êObjective: Identify notable quotes
+
+1. **Identify the central point of the content**
+
+    * Look for direct quotations (in quotation marks)
+    * Identify notable statements and strong declarative statements
+    * Look for surprising, counterintuitive, or memorable phrasing
+
+2. **Prioritize quotes that**
+
+    * Capture a key argument or insight
+    * Represent a surprising or contrarian view
+    * Are quotable (concise, well-phrased, memorable)
+    * Are meaningful without surrounding context
+
+3. **Attribute quotes**
+
+    * Identify the speaker, if possible
+    * Note the speaker's role or relevance
+    * Mark unattributed statements appropriately
+
+4. **Explain each quote's significance**
+
+    * Describe why this statement matters
+    * Note what it reveals or implies
+    * Connect to the broader argument or narrative
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * Identify the 5 most notable statements instead
+    * Label as "Notable statements" rather than "Quotes"
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+    * Show quotes or statements verbatim, and only show text found on the page
+
+    **Format the response as:**
+
+1. **"[Quote]"** ‚Äî [Attribution]
+
+    *Context: [One sentence explaining significance]*
+
+2. **"[Quote]"** ‚Äî [Attribution]
+
+    *Context: [One sentence explaining significance]*
+
+    [Continue for up to 5 quotes]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2HHighlights notable statements from a text and explains why each matters.B7https://www.gstatic.com/chrome/skills/images/quotes.pngRQuotes
+â
+$5d52ca69-83d8-4839-ad0a-cd743ebd973fBuild timeline
+Understand"‚è≥*∞Objective: Construct a chronological sequence of events
+
+1. **Identify the central point of the content**
+
+    * Find explicit dates, for example, "January 15, 2024"; "2019"; or "last Tuesday"
+    * Identify relative references, for example, "three months later", "the following year"
+    * Note sequence words like "first", "then", "finally", "before", and "after"
+
+2. **Identify what happened at each point**
+
+    * Identify the action or occurrence
+    * Note who was involved
+    * Note the significance, if stated
+
+3. **Convert events to specific dates when possible**
+
+    * Use context clues to calculate relative dates
+    * Mark uncertain dates with (?)
+    * Preserve original phrasing when dates can't be determined
+
+4. **Unless there is a strong reason not to, arrange events**
+
+    * Place earliest events first
+    * Group events with the same date/timeframe
+    * Use relative markers ("Before X," "After Y") when exact sequence is known but dates aren't
+
+5. **Cover the entire timeline of events presented on the page**
+
+    * Comprehensiveness is important, so complete timelines with all information available on a webpage
+    * Contextual accuracy is important, so don't add additional events to the timeline that aren't mentioned on the webpage
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Format the response as:**
+
+    **Timeline**
+
+    * **[Date/Timeframe]**: [Event description]
+    * **[Date/Timeframe]**: [Event description]
+    * **[Date/Timeframe]**: [Event description]
+
+    **Notes**
+
+    * [Any dates marked uncertain]
+    * [Any events where sequence is unclear]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2=Identifies dates to build a chronological sequence of events.B?https://www.gstatic.com/chrome/skills/images/build_timeline.pngRBuildTimeline
+ˇ
+$df34c5cc-a049-443a-b4e8-b57f0b9685a8Opposing view
+Understand"ü§∫*ñObjective: Construct a compelling counter-argument
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+
+2. **Identify the counter-position**
+
+    * Determine what a thoughtful critic would argue
+    * Find the strongest objections you can
+    * Identify shared ground and points of departure
+
+3. **Show genuine understanding**
+
+    * Start by stating what the original argument gets right
+    * Identify valid concerns the original argument addresses
+    * Demonstrate respect for the position you're arguing against
+
+4. **Build a strong opposing case**
+
+    * Present 2-3 compelling counter-points with reasoning
+    * Use evidence and logic, not emotion or dismissal
+    * Anticipate and address likely rebuttals
+
+5. **Explain the fundamental disagreement**
+
+    * Identify the key assumption or value difference
+    * Show why reasonable people might disagree
+    * Avoid straw-man fallacy or bad-faith interpretation
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Format the response as:**
+
+    **The original position:** [One sentence summary of what the page argues]
+
+    **What this gets right:** [Genuine acknowledgment of valid points]
+
+    **A counter argument**
+
+1. [Counter-point with reasoning]
+
+2. [Counter-point with reasoning]
+
+3. [Counter-point with reasoning]
+
+    **The core disagreement:** [Explanation of the underlying value or assumption difference]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2ONotes the valid points of an argument and builds a respectful counter-argument.B>https://www.gstatic.com/chrome/skills/images/opposing_view.pngROpposingView
+ﬂ
+$7e7bebe8-8125-41dc-a586-fe3b2779087bSummarize as table
+Understand"üìä*ÊObjective: Transform unstructured content into tabular format.
+
+1. **Identify the central point of the content**
+
+2. **Identify recurring content**
+
+    * Looking for lists of items with consistent attributes
+    * Finding comparisons (features, prices, specs)
+    * Identifying repeated patterns with consistent fields
+    * Detecting schedules, rankings, or any data with rows and columns
+
+3. **Determine the table structure**
+
+    * Identify what each row represents (products, people, events)
+    * Determine column headers based on repeated attributes
+    * Note which fields are present for all items vs. some items
+
+4. **Identify data**
+
+    * Extract data consistently across all items
+    * Mark missing values with "‚Äî"
+    * Preserve original formatting for numbers, dates, etc.
+
+5. **Validate the new table**
+
+    * Count total rows extracted
+    * Note source location on the page
+    * Flag any cells that couldn't be filled
+
+6. **Special cases**: If no clear tabular structure exists:
+
+    * Describe possible table formats and ask for preference
+    * Suggest dimensions that could organize the content (by date, by category, by attribute)
+
+7. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+8. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Format the response as:**
+    * Start with a summary sentence that explains in casual and simple terms the source of the information shown in the table. This sentence should include a link to the source.
+    * column labels should appear in bold
+
+    | [Column 1] | [Column 2] | [Column 3] | [Column 4] |
+    | ----- | ----- | ----- | ----- |
+    | [Value] | [Value] | [Value] | [Value] |
+
+    * The left column of the table should provide a sense for how many rows are in the results. This might happen naturally, for example, a list that ranks countries from 1 - 10 on some given criterion. Do nothing in this case. But if the first column of the table doesn't also serve to number rows, add a column to the table on the far left side that doesn't have a column label and that serves as a row counter (starting with 1 and increasing by 1 with each subsequent row).
+    * If, and only if, any cells are missing information, include a section title "Missing info" and explain why a particular cell might not have a value. If no cells are missing information, don't include this section.
+
+9. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2QExtracts recurring data from text to create a clean and organized tabular format.BChttps://www.gstatic.com/chrome/skills/images/summarize_as_table.pngRSummarizeAsTable
+Ò
+$c862ca98-0a9d-4e30-88b2-40f78b0a6a5cExecutive summaryWriting"üëî*˘Objective: Rewrite with a short and direct executive tone
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+
+2. **Rewrite**:
+
+    * Lead with the main point, assuming the reader may not get past the first sentence
+    * Place recommendations before arguments
+    * Front-load the "so what?"
+    * Remove hedging words like might, perhaps, arguably, it seems, and somewhat
+    * Change redundant phrases like "in order to" to "to"
+    * Trim as many words as possible without losing the core meaning. Aim for a word-count reduction of up to 60%.
+    * Use short bullets, if you think 1) it's the best way to make content scannable and 2) it feels appropriate given the context of the original content. Optimize for scanability by identifying a short label that summarizes the bullet. Display it in bold before the rest of the explanation.
+
+3. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+4. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+    * If applicable, include a short sentence that conveys something like "I've shortened the content and focused on key concepts. [Z]% fewer words ([X] vs. [Y])"
+
+    **Rewritten text**
+    [Rewritten text]
+
+5. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2UCondenses text by front-loading results and cutting content for a scannable overview.BBhttps://www.gstatic.com/chrome/skills/images/executive_summary.pngRExecutiveSummary
+◊
+$074f95e0-4b3c-4c54-9ca9-a880c2855806Rewrite with a friendly toneWriting"ü§ù*ÃObjective: Rewrite text with more warmth and empathy
+
+1. **Identify the central point of the content**
+
+    * Identify cold, formal, or demanding language
+    * Find opportunities to acknowledge the reader
+    * Note where softening would help vs. hurt clarity
+
+2. **Add warmth**
+
+    * Acknowledge feelings or situations where appropriate
+    * Add transition phrases that feel conversational
+    * Include appropriate openings and closings
+
+3. **Reframe directive and imperative statements**
+
+    * Replacing "you need to" with "you might consider"
+    * Converting commands to requests where appropriate
+    * Adding reasoning to make requests feel collaborative
+
+4. **Ensure tone is genuine**
+
+    * Avoid saccharine or over-the-top warmth
+    * Keep the professional substance intact
+    * Ensure softening doesn't obscure the message
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+    **Rewritten:** [Rewritten text with warmer tone]
+
+    **Changes**
+
+    * [What was softened and why]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2JSoftens language with transitions and turns commands into polite requests.BMhttps://www.gstatic.com/chrome/skills/images/rewrite_with_a_friendly_tone.pngRRewriteWithAFriendlyTone
+Í
+$8813af92-d198-48f6-afee-73a2c861eb0eFind synonymsWriting"üéØ*ãObjective: Generate a range of synonyms
+
+1. **Understand the target word**
+
+    * Identify the part of speech
+    * Read the surrounding sentence for context
+    * Understand the intended meaning in this context
+
+2. **Find 5 alternative words across the tone spectrum**
+
+    * **Casual**: Conversational, everyday usage
+    * **Conversational**: Friendly but not too informal
+    * **Neutral**: Standard, works in any context
+    * **Formal**: Professional, polished
+    * **Academic/Elevated**: Sophisticated, high-register
+
+3. **Connotation explanation**: For each alternative:
+
+    * Explain when to use this option
+    * Note any subtle meaning differences
+    * Flag if the word has unexpected connotations
+
+4. **Recommendation**: Based on context:
+
+    * Suggest the best fit for the surrounding text
+    * Explain why this choice works
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * No word highlighted ‚Üí Ask user to highlight a word
+    * Multiple words selected ‚Üí Offer alternatives for the phrase instead
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **The word:** [highlighted]
+    **Context:** "[surrounding sentence]"
+
+    **Alternatives**
+
+1. **[word]** *(casual)* ‚Äî [when to use]
+
+2. **[word]** *(conversational)* ‚Äî [when to use]
+
+3. **[word]** *(neutral)* ‚Äî [when to use]
+
+4. **[word]** *(formal)* ‚Äî [when to use]
+
+5. **[word]** *(academic)* ‚Äî [when to use]
+
+    **Recommendation:** Given your context, I'd suggest **[word]** because [reason].
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2HSuggests word choices from casual to academic while explaining best fit.B>https://www.gstatic.com/chrome/skills/images/find_synonyms.pngRFindSynonyms
+§
+$39598681-c647-4ed1-9d38-74846fbd4e40Correct grammarWriting"ü©π*¥Objective: Fix grammatical errors while preserving voice
+
+1. **Study the relevant content**
+
+    * The relevant content is probably a web page the user is viewing, but could also be an uploaded file or pasted text
+    * If there is any text to consider, it's highly likely that you can find grammatical errors worth correcting
+
+2. **Identify grammatical errors, if any**
+
+    * Spelling errors
+    * Grammar mistakes (subject-verb agreement, tense consistency)
+    * Punctuation errors
+    * Word usage errors (their/there/they're)
+
+3. **Preserve the original tone**
+
+    * Don't "fix" informal but correct phrasing
+    * Preserve style choices (short sentences, fragments for effect)
+    * Keep intentional voice markers
+
+4. **Only fix actual errors**
+
+    * Only improve word choice if the wrong word is used
+    * Only restructure a sentence if grammatically necessary
+    * Preserve the author's rhythm and emphasis
+
+5. **Explain each change**
+
+    * Show original ‚Üí correction
+    * Brief explanation of the rule
+    * Note if the "error" might be intentional
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Corrected text:** [Full corrected text]
+
+    **Changes made:** [make this a numbered list]
+
+    * **[original]** ‚Üí **[correction, on a new line]** ‚Äî [brief reason, on a new line]
+    * **[original]** ‚Üí **[correction, on a new line]** ‚Äî [brief reason, on a new line]
+
+    **No changes needed:** [List any that looked like errors but are actually fine]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2SFixes grammar, spelling, and punctuation while keeping the original tone and voice.B@https://www.gstatic.com/chrome/skills/images/correct_grammar.pngRCorrectGrammar
+‡
+$12bc1af5-f3db-4d58-a9f3-a920b139d3ecShorten textWriting"üóúÔ∏è*˜Objective: Reduce word count
+
+1. **Note starting point**
+
+    * Count original words
+    * Identify the core message that must remain
+
+2. **Reduce text without losing meaning**
+
+    * Aim for reducing word count by 50%
+    * Cut repeated points
+    * Remove filler phrases ("in order to," "the fact that," "it is important to note")
+    * Eliminate unnecessary qualifiers
+
+3. **Cut supporting material if it doesn't harm comprehension**
+
+    * Remove examples where the point is already clear
+    * Keep only the strongest example if multiple exist
+    * Convert lengthy explanations to concise summaries
+
+4. **Measure new word count**
+
+    * Count final words
+    * Confirm core meaning preserved
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **New word count:** [Y] ([Z]% reduction)
+    **Shortened:** [Compressed text]
+    **Original:** [X] words
+    **What was cut**
+    * [Category of cuts made]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2RCuts word count by half, removing filler and redundancy while keeping the meaning.B=https://www.gstatic.com/chrome/skills/images/shorten_text.pngRShortenText
+‰
+$2d1ff227-4210-4c07-8a86-9d411031f478Draft a professional emailWriting"üìß*⁄Objective: Convert content to a professional email format
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+    * Determine the intended recipient, if possible
+    * Determine a sense of urgency, if any
+
+2. **Subject line creation**: Write a clear, specific subject:
+
+    * Under 50 characters when possible
+    * Include action verb if requesting something
+    * Be specific enough to stand out in an inbox
+
+3. **Opening construction**
+
+    * Appropriate greeting for the context; one sentence
+    * Get to the point of the email in the second sentence. Consider making this sentence a self-standing paragraph
+
+4. **Structure the rest of the email for scanability**
+
+    * One idea per paragraph
+    * Short paragraphs (2-4 sentences max)
+    * Make action items explicit and easy to find
+    * Favor lists and bold labels if it improves scanability
+
+5. **End appropriately**
+
+    * Match formality to the relationship
+    * Include next steps if applicable
+    * Professional sign-off
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * No selection ‚Üí Ask user to highlight source text
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+    **Draft email**
+    Include a horizontal line to separate draft content
+
+    **Subject:** [Clear, specific subject line]
+
+    [Greeting],
+
+    [Body paragraphs]
+
+    [Sign-off],
+    [Name]
+
+    Include a horizontal line to separate the draft content from explanatory text.
+
+    If you think it's useful, with one sentence include any assumptions you made that you think might surprise the user or affect them to modify the draft content.
+    [Any assumptions made about context]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2NConverts content into a structured email with a subject line and action items.BKhttps://www.gstatic.com/chrome/skills/images/draft_a_professional_email.pngRDraftAProfessionalEmail
+ñ
+$85336e0c-3047-4bd1-9a91-5c5ef91e9537Suggest repliesWriting"üö¶*†Objective: Create 3 possible replies
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+    * Note the tone (formal, casual, urgent, sensitive)
+    * Determine what kind of response is expected
+
+2. **Option 1: Craft a quick response**
+
+    * Answers the core question directly
+    * Keeps to 2-3 sentences
+    * Works when you're busy or the answer is simple
+
+3. **Option 2: Complete response**
+
+    * Addresses all points raised
+    * Provides context and detail
+    * Works when thoroughness matters
+
+4. **Option 3: Detailed careful response**
+
+    * Uses measured, thoughtful phrasing
+    * Acknowledges complexity or sensitivity
+    * Works when tone really matters or the situation is delicate
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * Context unclear ‚Üí Provide options ranging brief to detailed
+    * No message visible ‚Üí Ask user to navigate to the message
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **In short:** [What you're replying to]
+
+    **Option 1 ‚Äî Brief:** [Quick, to-the-point reply]
+
+    **Option 2 ‚Äî Thorough:** [Complete response addressing all points]
+
+    **Option 3 ‚Äî Diplomatic:** [Careful phrasing for sensitive situations]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2YAnalyzes tone to offer three replies: a quick note, full answer, and diplomatic response.B@https://www.gstatic.com/chrome/skills/images/suggest_replies.pngRSuggestReplies
+¥
+$8f1d4e14-0e94-415b-b0c1-51020c319f7bTranslate textWriting"üåê*ÀObjective: Translate to specified language
+
+1. **Identify languages**
+
+    * Determine the source language
+    * Confirm the target language (if not specified, use the user agent's configured language)
+    * Note any dialect considerations
+
+2. **Consider context**
+
+    * Preserve the original meaning and tone
+    * Adapt idioms for meaning, not literal translation
+    * Maintain formatting and structure
+    * Identify cultural references that may not translate
+    * Offer alternative phrasings for ambiguous terms
+
+3. **Provide transparency**
+
+    * Note any particularly difficult translations
+    * Offer alternatives for key terms if multiple exist
+    * Identify any meaning that may be lost in translation
+
+4. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * No target language specified ‚Üí Suggest to the user that they can choose a target language
+    * Very long content without selection ‚Üí Ask user to highlight specific text
+
+5. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Source language:** [detected]
+    **Target language:** [specified or user agent's configured language]
+
+    **Translation:** [translated text]
+
+    **Original:** [source text]
+
+    **Notes:**
+
+    * [Idioms adapted]
+    * [Cultural context if relevant]
+    * [Alternative phrasings for key terms]
+
+6. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2MConverts text to a target language, adapting idioms while preserving context.8B?https://www.gstatic.com/chrome/skills/images/translate_text.pngRTranslateText
+∆
+$dfe2bafa-d66b-4642-a293-d3a3b71f7afdExplain slang or jargonWriting"üß¢*¡Objective: Translate slang or jargon to common language
+
+1. **Identify a term or terms to focus on**
+
+    * Has the user highlighted a term?
+    * Determine the context
+    * If the user hasn't indicated a  term, choose a term from the site the user is currently viewing. Do not choose a term yourself.
+
+2. **Professional translation**
+
+    * How to express the same sentiment professionally
+    * Formal alternatives that preserve the meaning
+    * Note any variations in meaning
+
+3. **Define in plain language**
+
+    * What the term actually communicates
+    * The emotional or social connotation
+    * Who typically uses this term
+
+4. **Explain a term's background**
+
+    * Where the term comes from (platform, community, event)
+    * How it evolved or spread
+    * Why it resonates with its users
+
+5. **Advise on appropriate use**
+
+    * When using the original is fine
+    * When to definitely use the professional version
+    * Risk of using it incorrectly
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Term:** "[highlighted slang]"
+
+    **Professional translation:** [How to say this in a work/formal context]
+
+    **What it actually means:** [Plain-language explanation]
+
+    **Origin/context:** [Where this came from, who uses it]
+
+    **Usage notes:**
+
+    * When it's appropriate to use the original
+    * When to use the professional version
+    * Risk of misuse
+
+    **Example:**
+
+    * Slang: "[example sentence]"
+    * Professional: "[same sentiment, formal language]"
+
+    **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2RDecodes informal terms and their origins while advising on usage and alternatives.BHhttps://www.gstatic.com/chrome/skills/images/explain_slang_or_jargon.pngRExplainSlangOrJargon
+˙
+$6fdc5186-9d49-4434-8305-9ff9357fd382Check job fitResearch"üß§*ñObjective: Compare a job description with someone's profile
+
+1. **Identify the central point of the content**
+
+    * Identify required skills and qualifications
+    * Identify preferred or bonus qualifications
+    * Identify key responsibilities and scope
+    * Identify experience level and years required
+
+2. **Compare against candidate profile or resume**
+
+    * User provides resume/profile OR skill uses stored context
+    * Match stated skills to required skills
+    * Identify relevant experience for each responsibility
+
+3. **Calculate alignment**
+
+    * Score 0-10 based on requirement coverage
+    * Weight required qualifications more heavily than preferred
+    * Account for adjacent/transferable skills
+
+4. **Identify areas of mismatch**
+
+    * List requirements not met
+    * Categorize gaps as skill gaps, experience gaps, or credential gaps
+    * Suggest how to address each gap in an interview
+
+5. **Make a recommendation**
+
+    * Based on all preceding steps, form a recommendation
+    * The objective is to give the user a gut check
+    * Yes / Maybe / Probably not with reasoning
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Fit score:** [X]/10
+    [One sentence explaining the score]
+
+    **Strong matches**
+
+    | Requirement | Your qualification | Match strength |
+    | :---: | :---: | :---: |
+
+    **Possible gaps**
+
+    | Requirement | Gap | How to Address in Interview |
+    | :---: | :---: | :---: |
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+    * Specific ways to help: talking points for an interview, keywords the candidate might use in an interview, how to positively frame gaps
+2MCompares a candidate to job requirements to find gaps and an alignment score.B>https://www.gstatic.com/chrome/skills/images/check_job_fit.pngRCheckJobFit
+É
+$c8a2ca3c-d1a9-4811-bb2a-496e7002f13dPrep for todayResearch"üåÖ*ôObjective: Create a morning briefing based on today's calendar
+
+1. **Scan calendar for today's schedule**
+
+    * All events with times and durations
+    * Meeting titles and attendees
+    * Location or video links
+    * If on calendar.google.com, avoid linking to individual events because it won't work
+
+2. **Identify preparation requirements**
+
+    * Meetings requiring pre-reads or materials
+    * Conversations needing talking points
+    * Decisions to be made
+
+3. **Find gaps for focused work**
+
+    * Gaps between meetings over 60 minutes
+    * Morning vs. afternoon availability
+    * Back-to-back stretches to flag
+
+4. **Note logistical concerns**
+
+    * Tight transitions between meetings
+    * Location changes requiring travel
+    * Unusual scheduling (early/late meetings)
+
+5. **Order tasks**
+
+    * Most important meeting preparation first
+    * Time-sensitive items flagged
+    * Quick wins vs. substantial prep
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Today's schedule:**
+
+    | Time | Event | Prep Needed |
+    | :---: | :---: | :---: |
+
+    **Focus blocks:** [Best times for deep work]
+
+    **Heads up**
+
+    * [Tight transitions]
+    * [Back-to-back stretches]
+    * [Anything unusual]
+
+    **Top 3 things to prepare:**
+
+1. [Most important prep item]
+
+2. [Second priority]
+
+3. [Third priority]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2PHighlights meeting prep, tight transitions, and focused work from your calendar.B?https://www.gstatic.com/chrome/skills/images/prep_for_today.pngRPrepForToday
+¢
+$6c2b3484-7fdb-403c-89b7-168ca65890e6Prep for meetingResearch"üíº*ØObjective: Prepare for a specific meeting
+
+1. **Identify meeting details**
+
+    * Title, time, and duration
+    * Attendees and their roles (if visible)
+    * Description and agenda items
+    * Attached documents or links
+
+2. **Identify topics to cover**
+
+    * Explicit agenda items from description
+    * Inferred topics from title and context
+    * Questions likely to come up
+
+3. **List things to prepare**
+
+    * Documents to review beforehand
+    * Data or metrics to have accessible
+    * Decisions that may be requested
+
+4. **Anticipate questions that might get raised**
+
+    * Questions that show you're prepared
+    * Questions that move the conversation forward
+    * Forward-looking questions about next steps
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * Not an event page ‚Üí Direct to calendar event
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Meeting:** [Title]
+    **When:** [Time and duration]
+
+    **Attendees** [List with roles if visible]
+
+    **Agenda:** [Extracted or inferred topics]
+
+    **Prep**
+
+    * [ ] [What to review beforehand]
+    * [ ] [Documents to have ready]
+    * [ ] [Questions to prepare answers for]
+
+    **Questions to prepare**
+
+1. [Shows you're prepared]
+
+2. [Moves things forward]
+
+3. [Forward-looking]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2SExtracts agenda items and documents to review while anticipating meeting questions.BAhttps://www.gstatic.com/chrome/skills/images/prep_for_meeting.pngRPrepForMeeting
+Í
+$03c53ad8-6aa2-4999-96c4-02e951506f07Research a companyResearch"üè¢*ˆObjective: Generate quick company facts and talking points
+
+1. **Background info**
+
+    * What the company does
+    * Size (employees, revenue if available)
+    * Date founded and location
+
+2. **Understand market position**
+
+    * Target customers
+    * Value proposition
+    * Missions statement
+    * Key competitors
+    * Differentiators
+
+3. **Recent activity**
+
+    * Recent news or announcements
+    * Product launches
+    * Leadership changes
+    * Funding rounds
+
+4. **Talking points**
+
+    * What makes this company interesting
+    * Questions a smart candidate would ask
+    * Industry trends relevant to the company
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * Not a company page ‚Üí Direct to About page, LinkedIn, or Crunchbase
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Background**
+
+    * What they do: [one sentence]
+    * Size: [employees if available]
+    * Founded: [when, where]
+
+    **Positioning:**
+
+    * Customers: [who they serve]
+    * Value prop: [what they offer]
+    * Competitors: [if identifiable]
+
+    **Recent news:** [Any visible announcements or developments]
+
+    **Talking points:**
+
+    * [Intelligent observation #1]
+    * [Intelligent observation #2]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2NCompiles business facts, market position, and news to develop speaking points.BChttps://www.gstatic.com/chrome/skills/images/research_a_company.pngRResearchACompany
+º
+$e1d08936-d695-48e7-a903-6bd88b4d3097Weekly work reviewResearch"üèÅ*«Objective: Generate a weekly work reflection and carryover summary
+
+1. **Analyze content**
+
+    * Notes, task list, calendar, or document
+    * Time period covered
+    * Type of work represented
+
+2. **Identify accomplishments**
+
+    * Tasks completed
+    * Progress made on larger initiatives
+    * Problems solved
+    * Meetings or decisions concluded
+
+3. **Identify what remains to be done**
+
+    * Tasks not completed
+    * Items still in progress
+    * Blockers encountered
+
+4. **Prioritize work for next week**
+
+    * What matters most to tackle first
+    * Deadlines approaching
+    * Dependencies to unblock
+
+5. **Offer insights, if any**
+
+    * Was the week focused or scattered?
+    * Any recurring blockers?
+    * What worked well?
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Accomplishments this week**
+
+    * [What got accomplished]
+    * [What moved forward]
+
+    **Still to do**
+
+    * [What didn't get done]
+    * [Is it still important?]
+
+    **Priorities for next week:**
+
+1. [Top priority]
+
+2. [Second priority]
+
+3. [Third priority]
+
+    **Notes:** [Observation about the week's rhythm]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2OAnalyzes recent tasks to highlight wins, identify blockers, and set priorities.BChttps://www.gstatic.com/chrome/skills/images/weekly_work_review.pngRWeeklyWorkReview
+ô
+$333b0944-ba5d-49bd-b2f6-0d49f7128bffBuying adviceShopping"ü§î*©Objective: Advice on whether you should buy or not
+
+1. **Product background**
+
+    * Product name, brand, and model
+    * Price and any variations
+    * Key specifications
+
+2. **Identify positive attributes**
+
+    * Features that stand out
+    * What reviewers praise
+    * Value proposition
+
+3. **Identify drawbacks**
+
+    * Common complaints in reviews
+    * Missing features
+    * Quality or durability issues
+
+4. **Determine fit for user**
+
+    * Ideal buyer profile
+    * Who should skip this product
+    * Use cases it serves well vs. poorly
+
+5. **Evaluate value**
+
+    * Is this price typical for the category?
+    * Should the user wait for a sale?
+    * Are there better value alternatives?
+
+6. **Make a recommendation**
+
+    * Based on all preceding steps, form a recommendation
+    * The objective is to give the user a gut check
+    * At the end of your initial response, inform the user: "Final costs may vary, always verify at checkout"
+    * ‚úÖ Buy it
+    * ‚ö†Ô∏è Buy, but things to consider
+    * ü§î Consider alternatives
+    * ‚ùå Skip it
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **In short:** [Your recommendation, and why. Then one sentence‚Äîwhat is this and who is it for?]
+
+    **Pros**
+
+    * [What's good]
+    * [What reviewers love]
+
+    **Cons:**
+
+    * [What's not great]
+    * [What reviewers complain about]
+
+    **Who should buy this:** [Ideal buyer]
+    **Who should skip this:** [Not right for...]
+
+    **Price check:** [Fair? Wait for sale?]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2VEvaluates product specifications and common complaints to provide buy / no-buy advice.8B>https://www.gstatic.com/chrome/skills/images/buying_advice.pngRBuyingAdvice
+—
+$6effd6c6-9197-4992-9f5b-a5f7c9e000beSummarize reviewsShopping"‚≠ê*‹Objective: Summarize many reviews
+
+1. **Process available reviews**
+
+    * Note the number of reviews and remember that value as "number_reviews"
+    * Overall rating
+    * Rating distribution if visible
+    * It's possible there aren't any reviews, for example if a product is new or out of stock. If that's the case, don't include any review analysis in your response.
+
+2. **Identify repeated patterns**
+
+    * Common positive themes
+    * Common complaints
+    * Frequency of each theme
+
+3. **Support themes with evidence**
+
+    * Representative quotes for major themes
+    * Specific examples that illustrate points
+
+4. **Evaluate trustworthiness**
+
+    * Do reviews seem genuine?
+    * Suspicious patterns (all 5-star, generic language)
+    * Verified purchase indicators
+
+5. **Summarize overall sentiment**
+
+    * Would most reviewers buy again?
+    * Who loves it vs. who hates it?
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+    If number_reviews is 0, your response should mention that there aren't any reviews and you should jump to the follow-on question.
+
+    **Overview:** [X] reviews, [Y] average rating
+
+    **Pros**
+
+    | Theme | Frequency | Example |
+    | :---: | :---: | :---: |
+
+    **Cons**
+
+    | Theme | Frequency | Example |
+    | :---: | :---: | :---: |
+
+    **Quality of reviews:** [Do they seem genuine?]
+
+    **Bottom line:** [Would most reviewers buy again?]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2RScans customer feedback to identify praise and complaints and overall trust level.BBhttps://www.gstatic.com/chrome/skills/images/summarize_reviews.pngRSummarizeReviews
+
+$b67dd4fb-8216-40d2-b1d6-ecff80e6f9cfIdentify specsShopping"üìè*¸Objective: Make it easy to review a product's specifications
+
+1. **Identify all available specs**
+
+    * Dimensions and weight
+    * Materials and construction
+    * Technical specifications
+    * Included accessories
+
+2. **Highlight what matters most**
+
+    * Specifications that differentiate products
+    * Specs that affect user experience
+    * Specs commonly compared in this category
+
+3. **Note gaps**
+
+    * Common specs for this product type not listed
+    * Information a buyer would want
+
+4. **Reformat for easy comparison, if necessary**
+
+    * Consistent units
+    * Clear labels
+    * Copy-friendly format
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Product:** [Name/Model]
+
+    **Specifications:**
+
+    | Spec | Value |
+    | :---: | :---: |
+
+    **Key comparison:** [The specs that matter most for decision-making]
+
+    **Things missing:** [Specs a buyer would want that aren't listed]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2YGathers technical details, highlighting what matters most and noting missing information.B?https://www.gstatic.com/chrome/skills/images/identify_specs.pngRIdentifySpecs
+£
+$225c00da-89b2-46ac-9840-69b13a3142fcPrice per unitShopping"üè∑Ô∏è*ºObjective: Calculate true per-unit value
+
+1. **Identify a products total cost**
+
+    * Listed price
+    * Any discounts or promotions
+    * Subscription vs. one-time cost
+
+2. **Consider quantities and dimensions**
+
+    * Size (oz, ml, lbs, kg)
+    * Count (units, servings, doses)
+    * Duration (months, uses)
+
+3. **Compute cost per unit**
+
+    * Per oz/ml for liquids
+    * Per serving for food
+    * Per use for consumables
+    * Per month for subscriptions
+
+4. **Find hidden expenses**
+
+    * Shipping costs
+    * Subscription requirements
+    * Consumables needed
+    * Installation or setup fees
+
+5. **Contextualize the price**
+
+    * Typical pricing for this category
+    * Bulk discount value
+    * Brand premium
+
+6. **Make a recommendation**
+
+    * Based on all preceding steps, form a recommendation
+    * The objective is to give the user a gut check
+    * At the end of your initial response, inform the user: "Final costs may vary, always verify at checkout"
+
+7. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+8. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **In short:** [your recommendation, if applicable. Assess value: typical pricing, bulk discounts, brand premium?]
+    **Price:** [total]
+    **Quantity:** [size/count]
+
+    **Unit price:**
+
+    * Per oz/ml: $X
+    * Per serving: $X
+    * Per use (estimated): $X
+
+    **Hidden costs:**
+
+    * [Shipping, subscription, consumables, etc.]
+
+9. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2JFactors in total costs, including shipping fees, to calculate a true cost.B?https://www.gstatic.com/chrome/skills/images/price_per_unit.pngRPricePerUnit
+»
+$41a6530f-5a32-48b2-81fb-45abfd767b44Check returnsShopping"‚Ü©Ô∏è*‹Objective: Get help returning a purchase
+
+1. **Find return window**
+
+    * Number of days allowed
+    * Start date (from purchase, delivery, etc.)
+    * Holiday extensions if mentioned
+
+2. **Identify return conditions**
+
+    * New/unused required?
+    * Original packaging needed?
+    * Tags attached?
+    * Receipt required?
+
+3. **Understand how to return**
+
+    * Return shipping: who pays?
+    * In-store vs. mail options
+    * Refund method (original payment, store credit)
+    * Processing time
+
+4. **Find items that can't be returned**
+
+    * Final sale categories
+    * Hygiene-restricted items
+    * Personalized/custom items
+    * Clearance restrictions
+
+5. **Identify unusual or hidden terms**
+
+    * Restocking fees
+    * Condition for refund vs. exchange
+    * Time limits for different product types
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+    * At the end of your initial response, inform the user: "Final costs may vary, always verify at checkout"
+
+    **In short:**
+
+    * Return window: [X] days
+    * Condition required: [new/opened/any]
+    * Refund method: [original payment/store credit]
+    * Who pays shipping: [you/them]
+
+    **Exceptions:** [Items that can't be returned]
+
+    **Things to look out for:** [Unusual terms or gotchas]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2RGathers refund details like deadlines, restocking fees, and return-shipping costs.B>https://www.gstatic.com/chrome/skills/images/check_returns.pngRCheckReturns
+Ó
+$c26a0992-39fd-45fa-ad33-7522dd673a19Sizing helpShopping"üëï*äObjective: Get help picking the right size
+
+1. **Find official guidance**
+
+    * Published size chart
+    * Measurement recommendations
+    * Fit description (slim, regular, relaxed)
+
+2. **Find sizing patterns in reviews**
+
+    * "Runs small" / "Runs large" / "True to size" frequency
+    * Specific sizing complaints
+    * Recommendations from reviewers
+
+3. **Calculate consensus in reviews**
+
+    * Percentage of reviewers mentioning sizing issues
+    * Direction of sizing issues
+    * Confidence based on review volume
+
+4. **Note fit variations based on body types**
+
+    * Feedback from different body types
+    * Length vs. width issues
+    * Between-size guidance
+
+5. **Make a recommendation**
+
+    * Based on all preceding steps, form a recommendation
+    * The objective is to give the user a gut check
+    * Order usual size, size up, or size down
+    * Check specific measurements if possible
+    * Return policy consideration for sizing
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+    **In short:**
+    * [Order usual size / Size up / Size down]
+    * [Specific advice]
+
+    **What reviews say:**
+
+    * Runs: [Small / True to size / Large]
+    * Frequency of sizing complaints: [X]%
+
+    **Size chart:** [If visible, key measurements]
+
+    **Notes:** [Body type feedback, between-sizes advice]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2RUses customer feedback to determine if an item runs small, large, or true to size.B<https://www.gstatic.com/chrome/skills/images/sizing_help.pngR
+SizingHelp
+ç
+$d3912c37-8734-429c-9fbe-f2436bba0521Check warrantyShopping"üõ°Ô∏è*óObjective: Get help figuring out if a purchase is still covered by warranty
+
+1. **Find what's protected**
+
+    * Duration (years, lifetime, limited)
+    * What's covered (defects, damage, wear)
+    * Who provides it (manufacturer, seller, third party)
+
+2. **Find what's NOT covered**
+
+    * Wear and tear
+    * Accidental damage
+    * Commercial use
+    * Unauthorized modifications
+
+3. **How to use the warranty**
+
+    * Registration required?
+    * Proof of purchase needed?
+    * Contact method
+    * Typical processing time
+
+4. **Evaluate the warranty**
+
+    * Is this typical for the product category?
+    * Better or worse than competitors?
+    * Is the warranty a selling point?
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Warranty**
+
+    * Duration: [X years / lifetime / limited]
+    * What's covered: [defects, damage, etc.]
+    * Provider: [manufacturer/seller/third party]
+    **Exclusions:** [What's NOT covered]
+    **Claim Process:** [How to claim, registration needed?]
+    **Assessment:** [For this product type, is this typical/good/bad?]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2XGathers product-protection info like covered defects, exclusions, and the claim process.B?https://www.gstatic.com/chrome/skills/images/check_warranty.pngRCheckWarranty
+¸
+$19309e05-0f5b-4f5c-870a-9975a743f1e2Rate as giftShopping"üéÅ*îObjective: Get help deciding if a product makes a good gift
+
+1. **Assess price**
+
+    * What relationship level fits this price point
+    * Hidden costs (batteries, subscription, shipping)
+    * Value perception
+
+2. **Does a product make a good gift? **
+
+    * Review summary
+    * Presentation quality
+
+3. **Consider practical aspects**
+
+    * Size/preference risk (wrong size, wrong color)
+    * Easy to wrap/ship?
+    * Universal appeal vs. niche interest
+    * Regifting potential (might they have one?)
+
+4. **Make a recommendation**
+
+    * Based on all preceding steps, form a recommendation
+    * The objective is to give the user a gut check
+    * At the end of your initial response, inform the user: "Final costs may vary, always verify at checkout"
+    * üéÅ Great gift
+    * ‚ö†Ô∏è Good with caveats
+    * ‚ùå Skip it
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **In short:** [üéÅ/‚ö†Ô∏è/‚ùå] ‚Äî [Reason]
+
+    **[Name of product]**
+    * Cost: [price]
+    * Appropriate for: [casual / close friend / family]
+    * Hidden costs: [shipping, batteries, subscription?]
+    * Reviews: [what people say]
+
+    **Does it make a good gift?**
+
+    * Gift-worthy or buy-for-yourself item?
+    * Easy to wrap/ship?
+    * Risk of wrong size/preference?
+    * Regifting potential: [might they already have one?]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2TAssesses if something would make a good gift based on things like brand and quality.B=https://www.gstatic.com/chrome/skills/images/rate_as_gift.pngR
+RateAsGift
+∞
+$6b767ad9-8ba2-416d-926e-5f823f66612fCompare open tabsShopping"üÜö*÷Objective: Compare product in current tab to items in other tabs
+
+1. **Identify open product tabs**
+
+    * List all tabs with product pages, "comparison tabs"
+    * Verify they're comparable products
+    * Note if permission is needed for tab access
+
+2. **Analyze the active tab**
+
+    * Product name and brand
+    * Price
+    * Key specifications
+    * Rating
+
+3. **Analyze each comparison tab**
+
+    * Search for the same attributes for each product
+    * Convert units and formatting, to facilitate comparison
+
+4. **Compare products**
+
+    * Side-by-side comparison
+    * Highlight differences
+    * Highlight missing data
+
+5. **Make a recommendation**
+
+    * Based on all preceding steps, form a recommendation
+    * The objective is to give the user a gut check
+    * At the end of your initial response, inform the user: "Final costs may vary, always verify at checkout"
+    * Cheapest option
+    * Best reviewed
+    * Best overall value
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * No other tabs ‚Üí Explain user needs to open comparison tabs
+    * Non-comparable tabs ‚Üí List what's open, note they're different categories
+    * Permission needed ‚Üí Explain tab access requirement
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Recommendation:** [Which tab to buy from and why]
+
+    **Comparison:**
+
+    | Feature | This Tab | Tab 2 | Tab 3 | Tab 4 |
+    | :------ | :------- | :---- | :---- | :---- |
+    | Product |          |       |       |       |
+    | Price   |          |       |       |       |
+    | Rating  |          |       |       |       |
+    | Specs   |          |       |       |       |
+
+    **Best by category:**
+
+    * Cheapest: [Tab X]
+    * Best reviewed: [Tab Y]
+    * Best value: [Tab Z]
+
+    *No external search needed‚Äîjust comparing what you already have open.*
+
+    **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+27Analyzes multiple product pages to find the best value.BBhttps://www.gstatic.com/chrome/skills/images/compare_open_tabs.pngRCompareOpenTabs
+∆
+$befdb2d6-0e82-4c0f-bf4a-9dca094d48d9Check reading level
+Understand"üéì*ŒObjective: Determine whether content is age appropriate
+
+1. **Check for adult content**
+
+    * Is the content designed for adults?
+    * Does the site advertise things like alcohol?
+
+2. **Evaluate linguistic complexity**
+
+    * Average sentence length
+    * Vocabulary level (common vs. specialized)
+    * Use of jargon or technical terms
+
+3. **Calculate approximate level**
+
+    * Grade level equivalent
+    * Sentence structure (simple vs. complex)
+    * Assumed prior knowledge
+    * Density of information
+
+4. **Determine appropriate readers**
+
+    * General audience suitability
+    * Expert-level appropriateness
+    * Value for learning
+
+5. **Make a recommendation**
+
+    * Based on all preceding steps, form a recommendation
+    * The objective is to give the user a gut check
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **In short:** [Recommendation]
+
+    **Reading level:** Grade [X]
+    **Complexity:**
+    * Sentence length: [short/medium/long]
+    * Vocabulary: [common/specialized/technical]
+    * Assumed knowledge: [none/some/significant]
+
+    **Reading time:** ~[X] minutes
+
+    **Appropriate for:**
+
+    * General audience: [yes/no]
+    * Experts: [yes/no]
+    * Learning this topic: [good intro / too advanced / too basic]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2MEstimates the grade level of content to help determine the intended audience.BDhttps://www.gstatic.com/chrome/skills/images/check_reading_level.pngRCheckReadingLevel
+ù
+$c7ac55b2-87fa-47e4-a7f6-63754ebd2a90Learn with flashcardsLearning"üìá*ØObjective: Generate study flashcards
+
+1. **Identify info likely to appear on a test**
+
+    * Key facts and data points
+    * Important terms and definitions
+    * Concepts and relationships
+    * Notable names, dates, events
+
+2. **Generate appropriate question types**
+
+    * **Definitions**: "What is [term]?"
+    * **Facts**: "When/Where/Who/What..."
+    * **Concepts**: "Explain..."
+    * **Comparisons**: "What's the difference between X and Y?"
+
+3. **Create up to 15 cards**
+
+    * Clear, specific questions
+    * Concise, accurate answers
+    * One concept per card
+    * Self-contained (no context needed)
+
+4. **Ensure cards are effective**
+
+    * Questions are unambiguous
+    * Answers are verifiable
+    * Mix of recall levels
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * Narrative content ‚Üí Generate discussion questions instead
+    * Limited content ‚Üí Create fewer cards, note limitation
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    | Front (Question) | Back (Answer) |
+    | ----- | ----- |
+    | What is [term]? | [Definition] |
+    | When did [event]? | [Date/time] |
+    | Explain [concept] | [Explanation] |
+    | Difference between X and Y? | [Comparison] |
+
+    [up to 15 cards]
+
+    *Ready for Anki, Quizlet, or manual study.*
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2=Generates 15 concise, self-contained questions to help study.8BFhttps://www.gstatic.com/chrome/skills/images/learn_with_flashcards.pngRLearnWithFlashcards
+Œ
+$b3d2a696-c73e-4e97-8202-a702fab936e4Make a quizLearning"‚ùì*˜Objective: Generate a quiz to facilitate learning
+
+1. **Identify key learning points**
+
+    * Main arguments or findings
+    * Important facts and details
+    * Concepts that need understanding
+    * Application of ideas
+
+2. **Create diverse questions, a mix of different types**
+
+    * **Recall**: Direct fact retrieval
+    * **Comprehension**: Understanding and explanation
+    * **Application**: Using knowledge in new context
+
+3. **Write clear questions**
+
+    * Specific and unambiguous
+    * Testable with definite answers
+    * Progressively more challenging
+
+4. **Create comprehensive answers**
+
+    * Full answer with explanation
+    * Why this answer is correct
+    * Hidden until revealed
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    Generate no more than 5 questions using this format:
+
+    **Q1:** [Question]
+
+    Answer: [insert answer here]
+
+    Explanation: [insert explanation here]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2GTests your knowledge with a mix of questions and detailed explanations.B<https://www.gstatic.com/chrome/skills/images/make_a_quiz.pngR	MakeAQuiz
+˜
+$fd7a3fdd-438d-4928-8caf-ef6d6e0d4757Deep questionsLearning"ü™û*ùObjective: Generate questions that help the user think deeply about a topic
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+    * Make connections to broader topics, if possible
+
+2. **Generate diverse question types**
+
+    * **Challenge assumptions**: What does this take for granted?
+    * **Explore implications**: If this is true, what follows?
+    * **Connect to experience**: How does this relate to life?
+    * **Consider alternatives**: What's the counter-argument?
+    * **Identify gaps**: What doesn't this answer?
+
+3. **Favor questions that are open ended**
+
+    * No single right answer
+    * Invite personal reflection
+    * Encourage deeper exploration
+
+4. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+5. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Questions to think about**
+
+1. **Challenge assumptions:** [Question about what the content takes for granted]
+
+2. **Explore implications:** [Question about what follows if this is true]
+
+3. **Connect to experience:** [Question relating to personal life/experience]
+
+4. **Consider alternatives:** [Question about counter-arguments or other views]
+
+5. **Identify gaps:** [Question about what isn't addressed]
+
+6. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2?Generates open-ended prompts designed to challenge assumptions.B?https://www.gstatic.com/chrome/skills/images/deep_questions.pngRDeepQuestions
+ƒ
+$682978df-58e0-4bd8-ab08-210ac4128ddbStudy guideLearning"üó∫Ô∏è*ÏObjective: Create structured study notes
+
+1. **Identify the central point of the content**
+
+    * Essential relationships
+
+2. **List important terms**
+
+    * Technical terms with definitions
+    * Key names and their significance
+    * Specialized vocabulary
+
+3. **Show how concepts connect**
+
+    * Cause and effect relationships
+    * Comparisons and contrasts
+    * Hierarchies and categories
+
+4. **Memory aids**
+
+    * Mnemonics where helpful
+    * Analogies to familiar concepts
+    * Visual relationships
+
+5. **Condense to essentials**
+
+    * 3-5 sentence overview
+    * Likely test topics
+    * What to focus on
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Summary:** [3-5 sentences]
+    **Key concepts:** [Main ideas with brief definitions]
+
+    **Vocabulary:** [Important terms]
+
+    **Main arguments:** [Core claims or conclusions]
+
+    **How concepts connect:** [Relationships, cause/effect, comparisons]
+
+    **Memory aids:** [Mnemonics, analogies]
+
+    **Likely test topics:** [What to focus study on]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2CCondenses material into essential concepts and suggests study aids.B<https://www.gstatic.com/chrome/skills/images/study_guide.pngR
+StudyGuide
+Ÿ
+$7a649470-692a-4989-bac2-a354085398e4Generate citationsLearning"üîñ*‘Objective: Generate citations in the style of 1) American Psychological Association (APA), 2) Modern Language Association (MLA), and 3) Chicago Manual of Style
+
+1. **Identify available information**
+
+    * Title of the page/article
+    * Authors if available
+    * Publication date
+    * Publisher or website name
+    * URL
+
+2. **Note what's missing or inferred**
+
+    * Author not found ‚Üí Use organization name or "n.a."
+    * Date not found ‚Üí Use "n.d."
+    * Mark any inferred information
+
+3. **Generate citations using 3 formats**
+
+    * **APA**: Author, Year format
+    * **MLA**: Author, Title format
+    * **Chicago**: Full bibliographic style
+
+4. **Include retrieval info**
+
+    * Today's date as access date
+    * Full URL
+
+5. **Highlight things the user should verify**
+
+    * Items that were inferred
+    * Information to verify on the actual source
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    * Title: [extracted]
+    * Author: [extracted or "Not found"]
+    * Date: [extracted or "n.d."]
+    * Publisher: [extracted]
+    * URL: [current]
+    * Accessed: [today's date]
+
+    **APA:** [Full APA citation]
+
+    **MLA:** [Full MLA citation]
+
+    **Chicago:** [Full Chicago citation]
+
+    **Notes:** [What was inferred, what to verify]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2^Locates info to automatically format bibliographic references in APA, MLA, and Chicago styles.BChttps://www.gstatic.com/chrome/skills/images/generate_citations.pngRGenerateCitations
+õ
+$cb9324d7-ea7e-4828-b421-5df2fefff990Break it downLearning"üë©‚Äçüè´*üObjective: Create understanding through thoughtful instruction
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+    * Reflect on prerequisites the learner needs
+    * Reflect on common stumbling blocks the learner might encounter
+
+2. **Start with basics**
+
+    * What do I need to know first?
+    * Simplest version of the concept
+    * Building blocks before complexity
+
+3. **Build understanding gradually**
+
+    * One concept at a time
+    * Analogies to familiar things
+    * Concrete examples
+
+4. **Add clarity markers**
+
+    * "The key insight is..."
+    * "A common misconception is..."
+    * "You'll know you understand when..."
+
+5. **Make it stick**
+
+    * Why does this matter?
+    * How does it connect to other things?
+    * When would I use this?
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **The basics** [Foundational concept]
+
+    **Building from there** [Progressive explanation with examples]
+
+    **Key insights** [The core "aha" moment]
+
+    **Common misconceptions** [What people often get wrong]
+
+    **Why this matters** [Real-world relevance]
+
+    **Check your understanding** [Self-check criteria]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2VBreaks down foundational concepts step-by-step, using examples to build understanding.BFhttps://www.gstatic.com/chrome/skills/images/get_help_from_a_tutor.pngRBreakItDown
+‹
+$02ba01c4-003a-4163-9d5b-d091130d4cf5Hype it up!Fun"üì£*ÜObjective: Reframe content in motivational terms
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+
+2. **Identify what needs hyping**
+
+    * What the user is facing
+    * The challenge or opportunity
+    * What success looks like
+
+3. **Find reasons for confidence**
+
+    * What they've already accomplished
+    * Skills or traits that apply
+    * Evidence they can do this
+
+4. **Create motivational content**
+
+    * Genuine, not toxic positivity
+    * Real talk that makes them feel capable
+    * Specific rather than generic
+
+5. **End with a call to action**
+
+    * First small step to take
+    * Mantra for the day
+    * Clear forward direction
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * Sad content ‚Üí Offer encouragement or listening instead
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **The situation** [What you're facing]
+
+    **A positive spin**
+
+    [Energetic, genuine encouragement‚Äînot toxic positivity, real talk that makes you feel capable]
+
+    **Remember**
+
+    * [One thing you've accomplished that proves you can do this]
+    * [Why this matters]
+    * [The first small step]
+    * [One sentence to carry with you]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2LOffers encouragement to the user by highlighting their traits and past wins.B;https://www.gstatic.com/chrome/skills/images/hype_it_up.pngRHypeItUp
+í
+$dfcc2e51-7ea4-4372-bc66-0826ad857ff4	Fun factsFun"ü•Ç*ŒObjective: Generate interesting facts to share socially
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+    * Surprising facts most people don't know
+    * Counter-intuitive insights
+    * Connections to broader topics
+
+2. **Speaking points**
+
+    * **Surprising fact**: Impressive but not obnoxious
+    * **Informed opinion**: Shows you've thought about it
+    * **Smart question**: Sparks interesting discussion
+
+3. **Practical guidance**
+
+    * Natural transition phrases
+    * How to bring it up without forcing it
+    * Exit strategies if someone knows more
+
+4. **Keep it interesting**
+
+    * Sounds curious, not lecturing
+    * Invites conversation, not monologue
+    * Shows interest in others' perspectives
+
+5. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Surprising facts** "[Something most people don't know that sounds impressive but not obnoxious]"
+
+    **An informed opinion** "[A take on this topic that shows you've thought about it]"
+
+    **To show you've thought about this** "[Something to ask others that sparks conversation]"
+
+    **How to bring it up naturally** [Transition phrases]
+
+    **If someone knows more than you:** [How to pivot gracefully to asking questions]
+
+6. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2=Provides trivia and suggests how to use them in conversation.B:https://www.gstatic.com/chrome/skills/images/fun_facts.pngRFunFacts
+·
+$8ece0f95-5d02-47cc-bbbc-0999218f7266Explain something in characterFun"üé≠*“Objective: Have something explained in the character of your choosing
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+
+2. **Confirm the character**
+
+    * User specifies (pirate, Shakespeare, coach, etc.)
+    * If not specified, offer popular options
+
+3. **Define the character**
+
+    * Vocabulary and phrasing
+    * Worldview and references
+    * Speech patterns and cadence
+
+4. **Transform text while maintaining accuracy**
+
+    * preserve core information
+    * Reframe through character lens
+
+5. **Stay in character**
+
+    * Use their vocabulary consistently
+    * Include character-appropriate reactions
+
+6. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * No character specified ‚Üí Offer options (pirate, Shakespeare, sports coach, noir detective, surfer, grandma, drill sergeant)
+    * Character doesn't fit ‚Üí Suggest alternative
+
+7. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    **Explaining as [CHARACTER]**
+
+    [Full explanation in character voice, 150-300 words]
+
+    **Key points (in character)**
+
+1. [Main idea, in voice]
+
+2. [Supporting point, in voice]
+
+3. [Takeaway, in voice]
+
+8. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2KTransforms text to match the vocabulary and speech patterns of a character.BOhttps://www.gstatic.com/chrome/skills/images/explain_something_in_character.pngRExplainSomethingInCharacter
+ 
+$7fc0fa09-468d-4e40-a476-c846c689da7bDramatize contentFun"üé¨*◊Objective: Rewrite content as a dramatic narrative
+
+1. **Identify the central point of the content**
+
+    * Find the core idea or main argument
+    * Identify what the author wants readers to believe or do
+    * Reflect on the "why?" of the content
+    * Note the scope and limitations of the content
+    * Key players and actions
+    * The stakes (even if small)
+
+2. **Choose dramatic style**
+
+    * Epic fantasy
+    * Action movie trailer
+    * Documentary narrator
+    * Ancient myth
+
+3. **Apply dramatic elements**
+
+    * Elevated language
+    * Dramatic tension
+    * Narrative arc
+    * Stakes amplification
+
+4. **Condense to a tagline for a movie poster**
+
+    * One dramatic sentence
+    * Captures the essence
+
+5. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+    * Already dramatic ‚Üí Make it even MORE dramatic
+
+6. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+    **Dramatic tagline:** [One-sentence movie poster version]
+
+    **The original** [Original content]
+
+    **THE EPIC VERSION**
+
+    [200-400 word dramatic narrative transformation]
+
+7. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2TElevates the stakes of a story by applying epic language suited for a movie trailer.BBhttps://www.gstatic.com/chrome/skills/images/dramatize_content.pngRDramatizeContent
+¸
+$1802cd7c-32ff-4c1f-a82a-c0cab63fa20eMake grocery listShopping"üìã*âObjective: Create a shopping list based on the list of ingredients in a recipe
+
+1. **Identify the central point of the content**
+
+    * Identify all ingredients
+
+2. **Normalize quantities**
+
+    * Maintain metric or imperial measurements, based on the original measurements on the site
+    * Normalize quantities, making it easier to purchase in the store
+    * Combine any duplicate ingredients
+
+3. **Generate the shopping list**
+
+    * For each item, choose the section of the store in which the user is most likely to find the item, for example: produce, dairy, Meat, Seafood, Pantry, Frozen, Bakery
+    * Organize the table by store section
+
+4. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+5. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+
+    | Ingredient | Quantity | Store section |
+    | ----- | ----- | ----- |
+
+    **Common ingredients you'll also need**
+    [staple 1]
+    [staple 2]
+
+6. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+    * If the user lives in a country that typically uses measurements other than those used on the page (metric instead of imperial), ask the user if they'd like quantities converted to the other measurement.
+2PNormalizes recipe quantities and categorizes ingredients by supermarket section.BBhttps://www.gstatic.com/chrome/skills/images/make_grocery_list.pngRMakeGroceryList
+—
+$1fcd9ca9-c692-4541-8976-2845548148f0Protein maxTop Pick"üí™*¯Analyze the recipe on the current webpage. Identify all ingredients and estimate their protein content. Suggest substitutions or additions to maximize the overall protein content of the recipe, while maintaining the integrity of the original recipe's flavor profile. Output the revised recipe with protein content listed for each ingredient and the total protein per serving.
+2;Modifies a recipe by suggesting high-protein substitutions.BHhttps://www.gstatic.com/chrome/skills/images/maximize_protein_intake.pngR
+ProteinMax
+å
+$d78c0bac-b441-46da-a994-afe928d26d78Where does the time go?
+Understand"‚è±Ô∏è*ãObjective: Help the user understand how they spent their time in the last 4 weeks
+
+1. **Identify the central point of the content**
+
+    * Analyze the user's Google Calendar for the last 4 weeks
+
+2. **Identify categories**
+
+    * Examples of categories include meetings, projects, personal time
+
+3. **Assemble the response**
+
+    * Provide a summary of time allocation
+    * List each category and the percent of total time spent on that category
+
+4. **Handling exceptions**
+
+    Prioritize excellent content in your response. If you're unable to formulate a response that meets all criteria, you should
+    * respond as best you can and
+    * acknowledge any limitations or challenges you faced. For example, maybe there wasn't sufficient content on a webpage or the content wasn't compatible with a given request.
+
+    Consider your proposed response objectively and rate it on a scale from 1-10. If you wouldn't give it a 10, either try to create a stronger response or consider acknowledging any limitations or challenges you faced. The score is just for your own purposes; don't share it with the user.
+
+5. **Final response**
+
+    If you have relevant info to share, your final response should follow standard writing guidelines, including:
+
+    * Sentence case: titles, labels, and all other content should be displayed using sentence case (only proper nouns and the first letter of a string appear capitalized).
+    * Favor simple sentences that use common words
+    * Format as a bulleted list with percentages
+
+6. **Follow-up questions**
+
+    If you can think of a way you can help the user act on information shown in the response, conclude with one (at most two) sentences that offers this help. Frame it as a question so that a simple response like "yes please" might launch the next round.
+2LAnalyzes four weeks of appointments to show how the user‚Äôs time was spent.BGhttps://www.gstatic.com/chrome/skills/images/where_does_the_time_go.pngRWhereDoesTheTimeGo
+∂
+$ba76d1be-21ff-4122-9669-41c4ca310141What's in this?
+Understand"üìù*ﬁ	Generate an infographic-style and interesting image of the visual breakdown of the product's composite ingredients:
+
+    * Clean, modern layout on warm light cream white background.
+    * The layout should be as balanced as possible.
+    * At the top of the image, in bold text say "Product Breakdown" on one line, then the next line should be the name of the product.
+    * Near the title, show an illustration of the product.
+    * Organized by categories, give a name to each category instead of just calling it 'category': active ingredients, base/carrier, preservatives, fragrance (for beauty); main fiber, blend components, treatments (for fabric); etc.
+    * Color coding by CATEGORY (what it does), not by safety judgment.
+    * Show every ingredient or material as a separate card.
+    * Do not create cards with the same content.
+    * Do not show empty cards or categories, or any ingredient without a name.
+    * No ratings, no scores, no red/yellow/green safety signals.
+    * Palette: soft, approachable ‚Äî sage green, warm cream, soft blue, light coral.
+    * Illustrations: Hand-drawn, non-photorealistic art.
+    * Typography: All text must be clearly legible at phone screen size.
+    * Ensure all words are spelled correctly.
+2=Creates an infographic for breaking down a recipe or product.B>https://www.gstatic.com/chrome/skills/images/whats_in_this.pngRWhatsInThis
+ñ
+$fed7dfe1-6128-4d10-a91b-b165038ddc99Meal plannerTop Pick"üçΩÔ∏è*ªGenerate an image of a single illustrated cooking game plan and timeline based on the provided recipes:
+
+    * 3 sections in this order and with the following labels: "Menu", "Timeline", "Prep List".
+    * The section labels should be bold.
+    * The sections should be laid out vertically.
+    * Top section ("Menu"): list each dish with a small hand-drawn illustration, individual prep/cook times, and total combined time.
+    * Middle section ("Timeline"): A left-to-right timeline running from start time (0:00) to "Serve". Should resemble a Gantt chart.
+    * Bottom section ("Prep List"): A unified, deduplicated ingredient list grouped by category (produce, protein, dairy, pantry) with combined quantities.
+    * In the Prep List, if an ingredient is needed in multiple recipes, only show the combined total.
+    * In the Prep List, for each ingredient show a small illustrated image. Under each image, identify the ingredient and quantity like this: "Onion Powder (1 tsp)".
+    * Each dish gets a color-coded horizontal lane matching its menu illustration. Don't specify the color using text anywhere.
+    * Show tasks as blocks on the timeline: light fill for passive time, bold fill for active cooking.
+    * If an oven is needed, then include oven usage blocks showing temperatures. If there are oven temperature conflicts, visually flag them. Otherwise if no oven is needed don't mention anything about an oven.
+    * Mark critical timing moments, passive prep windows, and the single most important timing callout with a ‚ö° symbol.
+    * Style: A cross between a Gantt chart and a cookbook illustration.
+    * Layout must be clean, easily scannable at a glance, and not too visually dense.
+    * Palette: Warm and inviting.
+    * Illustrations: Hand-drawn, non-photorealistic food art.
+    * Typography: All text must be clearly legible at phone screen size.
+    * The ingredient image must match the ingredient name.
+    * Ensure all words are spelled correctly.
+2CCreates an infographic timeline and prep list for multiple recipes.B=https://www.gstatic.com/chrome/skills/images/meal_planner.pngRMealPlanner
+˝
+$536f16c4-8b78-48c4-b101-f52f45a68021Gift conciergeTop Pick"üõéÔ∏è*∏You are a decisive personal shopper. When I invoke this skill, first ask me two questions: (1) Who is this for and what's the occasion? (2) What's my budget?
+
+Then look at all my open tabs. For each tab, extract: product name, price, retailer, category, star rating, and shipping estimate.
+
+Next, write a 2-sentence "Taste Read" ‚Äî a personality profile of the recipient based on the collection of products I'm browsing.
+
+Finally, pick "The One" ‚Äî the single best gift given my answers ‚Äî and explain why in one sentence. If nothing in my tabs is a great fit, say so and tell me what to search for instead.
+
+Output the tab inventory as a table. Keep the Taste Read fun and specific. Be opinionated, not diplomatic.
+
+At the end of your initial response, inform the user: "Final costs may vary, always verify at checkout"
+2'Assists with picking the ultimate gift.B?https://www.gstatic.com/chrome/skills/images/gift_concierge.pngRGiftConcierge
+ò
+$cf148a36-03ee-4d83-9f87-25d15ad4d12aShop for clothes & accessoriesShopping"üëï*ç## Objective ##
+Offer the user information about a potential clothing or accessories purchase they‚Äôre currently viewing.
+
+## CONTENT GUIDELINES ##
+* **Existing context**: Use information you know about the user and from prior exchanges.
+* **Link constraints**: Never link to the current URL in your response; explicitly forbid adding URL variants, trailing slashes, query parameters, or anchor tags (e.g., paths ending in `#`, `#sub-section`, or `?variant=...`) that resolve to the same host page.
+
+* **Takeaway**: CRUCIAL STEP: Before generating the first word of your response, silently review the size, review, and promo data in your context window. Synthesize this data to provide a 5-8 word snappy and memorable summary. **DO NOT USE A PERIOD** at the end.
+
+* **Size & fit**:
+1. Help the user choose the correct size by telling them how this item fits (eg. true to size, larger or smaller). Explain why. If the user's size is known, you may also suggest a size for the user. Do not list all available sizes.
+2. On additional turns, if the user asks ANYTHING related to size and fit, silently fetch info from the size guide (if there is one) and include it in table form in your response.
+
+* **Reviews**: If there are at least 6 user reviews on the page:
+1. **Overall reviews**: Number of reviews and average score.
+2. **Identify positive attributes**
+3. **Identify drawbacks** like why returns, missing features, quality or durability issues.
+
+* **Promotional offers**
+1. Link only to official brand promo pages or their affiliate merchant portals.
+2. The "Financial Utility" rule: Only display a promotion if it guarantees a definitive, immediate price reduction on the item or shipping costs; ban purely non-monetary marketing (e.g., loyalty points).
+
+* **Follow-up question**
+1. Follow-up questions must offer an immediate and CONCRETE path to helping the user make a decision about purchasing this item.
+2. Only ask follow-up questions that you are able to effectively respond to (eg. do not offer to purchase an item on behalf of the user. eg. offer to show the user wearing this item in different settings with nano banana).
+
+## FORMATTING CONSTRAINTS ##
+* Limit your response to fewer than 120 words.
+* Use a casual tone, as if speaking to a friend.
+
+## OUTPUT TEMPLATE (first turn only) ##
+* Use the structural template below ONLY for your initial product recommendation. For all subsequent replies in the conversation, abandon this template and respond as normal to the user.
+* If the source material does not contain information for a specific section (e.g., no promos, no reviews), completely omit that section and its heading from your output. Do not write 'N/A' or 'None'.
+* Render markdown to optimize formatting for the user
+
+**[Takeaway]**
+
+[IF SIZE EXISTS]
+üìè **Size & fit**: [Size & fit]
+
+[IF REVIEWS EXIST]
+‚≠ê **Reviews**: [average score] average ([number of reviews] total)
+* People like: [Identify positive attributes]
+* Things to consider: [Identify drawbacks]
+
+[IF PROMOS EXISTS]
+üè∑Ô∏è **Promos**
+[If more than one, bullet list]
+
+[follow up question]2OGet promos, reviews, and size advice when shopping for clothes and accessories.BHhttps://www.gstatic.com/chrome/skills/images/clothes_and_accessories.pngRClothesAndAccessories
+Top PickSelected by Chrome

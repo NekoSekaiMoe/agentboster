@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Doubao Visualization Minimal Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mode", "behavior", "source", "secondary"],
+  "properties": {
+    "mode": {
+      "enum": [
+        "text_only",
+        "echarts",
+        "static_image_overlay",
+        "html_svg"
+      ]
+    },
+    "behavior": {
+      "enum": ["not_applicable", "static", "interactive"]
+    },
+    "source": {
+      "enum": [
+        "user_content",
+        "user_image",
+        "verified",
+        "example",
+        "insufficient"
+      ]
+    },
+    "secondary": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "echarts",
+        "static_image_overlay",
+        "html_svg"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"mode": {"const": "html_svg"}},
+        "required": ["mode"]
+      },
+      "then": {
+        "properties": {
+          "behavior": {"enum": ["static", "interactive"]}
+        }
+      },
+      "else": {
+        "properties": {
+          "behavior": {"const": "not_applicable"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"mode": {"const": "static_image_overlay"}},
+        "required": ["mode"]
+      },
+      "then": {
+        "properties": {
+          "source": {"const": "user_image"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"source": {"const": "insufficient"}},
+        "required": ["source"]
+      },
+      "then": {
+        "properties": {
+          "mode": {"const": "text_only"},
+          "secondary": {"const": null}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"mode": {"const": "text_only"}},
+        "required": ["mode"]
+      },
+      "then": {
+        "properties": {
+          "secondary": {"const": null}
+        }
+      }
+    }
+  ]
+}

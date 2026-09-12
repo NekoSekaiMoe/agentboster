@@ -1,0 +1,353 @@
+{
+  "saman_floating_window_evade_full_screen": {
+    "enabled": true,
+    "timer_interval": 2000,
+    "full_screen_evade_app_whitelist": []
+  },
+  "saman_app_share_config_switch": {
+    "enabled": true
+  },
+  "saman_office_app_observer_config": {
+    "office_enable": false,
+    "wps_enable": false,
+    "office_app_ids": [
+      "win_microsoft_word",
+      "win_microsoft_excel",
+      "win_microsoft_ppt",
+      "win_wps_word",
+      "win_wps_excel",
+      "win_wps_ppt",
+      "mac_microsoft_word",
+      "mac_microsoft_excel",
+      "mac_microsoft_ppt"
+    ],
+    "app_share_notify_delay_time": 5,
+    "notification_global_slient_time": 30,
+    "notification_slient_time": 8,
+    "notify_ignore_cooldown_time": 24,
+    "support_file_ext": [
+      "xlsx",
+      "csv",
+      "docx",
+      "pptx"
+    ]
+  },
+  "saman_app_share_config": {
+    "app_share_list": [
+      {
+        "app_id": "mac_microsoft_word",
+        "app_share_interaction_type": "word",
+        "app_share_script_info": {
+          "functions": [
+            {
+              "description": "Returns an array of objects containing information about the most recent context changes in the document.",
+              "input_schema": {},
+              "name": "getRecentContextInfo",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,e){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,e){t.__proto__=e}||function(t,e){for(var n in e)Object.prototype.hasOwnProperty.call(e,n)&&(t[n]=e[n])},extendStatics(t,e)};function __extends(t,e){if(\"function\"!=typeof e&&null!==e)throw new TypeError(\"Class extends value \"+String(e)+\" is not a constructor or null\");function n(){this.constructor=t}extendStatics(t,e),t.prototype=null===e?Object.create(e):(n.prototype=e.prototype,new n)}\"function\"==typeof SuppressedError&&SuppressedError;var EMPTY_DOCUMENT_CONTENT_CHECK_LIMIT=10,ScriptError=function(t){function e(e,n){var r=t.call(this,n)||this;return r.code=e,r}return __extends(e,t),e}(Error);function HFSPathToUnixPath(t){return\"/Volumes/\"+t.replace(/\\:/g,\"/\")}function getOfficeBasicInfo(t,e){var n,r,o=t.fullName(),i=!1,s=!1;return 1===o.split(\".\").length?i=!0:0!==o.indexOf(\"http://\")&&0!==o.indexOf(\"https://\")||(s=!0),n=t.hasPassword(),r=t.saved(),{name:t.name(),path:i||s?o:HFSPathToUnixPath(o),isTemp:i,isRemote:s,hasPassword:n,saved:r}}function getWordBasicInfo(t){return getOfficeBasicInfo(t)}function isDocumentEmpty(t){return!(t.textObject.startOfContent()+EMPTY_DOCUMENT_CONTENT_CHECK_LIMIT<=t.textObject.endOfContent())&&0===t.textObject.content().replace(/\\s/g,\"\").length}function getRecentContextInfo(t){var e=Application(\"Microsoft Word\");if(!e.running())throw new ScriptError(1,\"not running\");var n=e.activeDocument;if(!n())return{infos:[]};var r=getWordBasicInfo(n);return{infos:[{type:\"file\",fileInfo:{name:r.name,path:r.path,isTemp:r.isTemp,isRemote:r.isRemote,hasPassword:r.hasPassword,saved:r.saved,isEmpty:isDocumentEmpty(n)},timestamp:Date.now()}]}}\n"
+            },
+            {
+              "description": "Returns an array of objects containing the text content of the most recent context changes in the document.",
+              "input_schema": {},
+              "name": "getRecentContextTextContent",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,e){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,e){t.__proto__=e}||function(t,e){for(var n in e)Object.prototype.hasOwnProperty.call(e,n)&&(t[n]=e[n])},extendStatics(t,e)};function __extends(t,e){if(\"function\"!=typeof e&&null!==e)throw new TypeError(\"Class extends value \"+String(e)+\" is not a constructor or null\");function n(){this.constructor=t}extendStatics(t,e),t.prototype=null===e?Object.create(e):(n.prototype=e.prototype,new n)}\"function\"==typeof SuppressedError&&SuppressedError;var EMPTY_DOCUMENT_CONTENT_CHECK_LIMIT=10,ScriptError=function(t){function e(e,n){var o=t.call(this,n)||this;return o.code=e,o}return __extends(e,t),e}(Error);function HFSPathToUnixPath(t){return\"/Volumes/\"+t.replace(/\\:/g,\"/\")}function getOfficeBasicInfo(t,e){var n,o,r=t.fullName(),i=!1,c=!1;return 1===r.split(\".\").length?i=!0:0!==r.indexOf(\"http://\")&&0!==r.indexOf(\"https://\")||(c=!0),n=t.hasPassword(),o=t.saved(),{name:t.name(),path:i||c?r:HFSPathToUnixPath(r),isTemp:i,isRemote:c,hasPassword:n,saved:o}}function getWordBasicInfo(t){return getOfficeBasicInfo(t)}function isDocumentEmpty(t){return!(t.textObject.startOfContent()+EMPTY_DOCUMENT_CONTENT_CHECK_LIMIT<=t.textObject.endOfContent())&&0===t.textObject.content().replace(/\\s/g,\"\").length}function getRecentContextTextContent(t){var e=Application(\"Microsoft Word\");if(!e.running())throw new ScriptError(1,\"not running\");var n=e.activeDocument;if(!n())throw new ScriptError(2,\"not found active document\");var o=getWordBasicInfo(n),r=n.textObject.content(),i=e.activeWindow.selection.textObject.content();return{contexts:[{info:{type:\"file\",fileInfo:{name:o.name,path:o.path,isTemp:o.isTemp,isRemote:o.isRemote,hasPassword:o.hasPassword,saved:o.saved,isEmpty:isDocumentEmpty(n)},timestamp:Date.now()},textContent:{text:r,selections:i?[{content:i}]:[]}}]}}\n"
+            },
+            {
+              "description": "Returns an array of objects containing information about all open documents.",
+              "input_schema": {},
+              "name": "getDocumentList",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,e){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,e){t.__proto__=e}||function(t,e){for(var n in e)Object.prototype.hasOwnProperty.call(e,n)&&(t[n]=e[n])},extendStatics(t,e)};function __extends(t,e){if(\"function\"!=typeof e&&null!==e)throw new TypeError(\"Class extends value \"+String(e)+\" is not a constructor or null\");function n(){this.constructor=t}extendStatics(t,e),t.prototype=null===e?Object.create(e):(n.prototype=e.prototype,new n)}\"function\"==typeof SuppressedError&&SuppressedError;var MAX_DOCUMENT_LIST_SIZE=50,EMPTY_DOCUMENT_CONTENT_CHECK_LIMIT=10,ScriptError=function(t){function e(e,n){var r=t.call(this,n)||this;return r.code=e,r}return __extends(e,t),e}(Error);function HFSPathToUnixPath(t){return\"/Volumes/\"+t.replace(/\\:/g,\"/\")}function getOfficeBasicInfo(t,e){var n,r,o=t.fullName(),s=!1,i=!1;return 1===o.split(\".\").length?s=!0:0!==o.indexOf(\"http://\")&&0!==o.indexOf(\"https://\")||(i=!0),n=t.hasPassword(),r=t.saved(),{name:t.name(),path:s||i?o:e?HFSPathToUnixPath(o):o,isTemp:s,isRemote:i,hasPassword:n,saved:r}}function getWordBasicInfo(t){return getOfficeBasicInfo(t,!0)}function isDocumentEmpty(t){return!(t.textObject.startOfContent()+EMPTY_DOCUMENT_CONTENT_CHECK_LIMIT<=t.textObject.endOfContent())&&0===t.textObject.content().replace(/\\s/g,\"\").length}function getDocumentList(t){var e=Application(\"Microsoft Word\");if(!e.running())throw new ScriptError(1,\"not running\");var n=e.documents();if(!n)return{docs:[]};for(var r=[],o=n.length>MAX_DOCUMENT_LIST_SIZE?MAX_DOCUMENT_LIST_SIZE:n.length,s=0;s<o;s++){var i=n[s],a=getWordBasicInfo(i);r.push({fileName:a.name,filePath:a.path,isTemp:a.isTemp,isRemote:a.isRemote,hasPassword:a.hasPassword,saved:a.saved,isEmpty:isDocumentEmpty(i)})}return{docs:r}}\n"
+            },
+            {
+              "description": "Returns object containing the text content of the most recent context changes in the target document.",
+              "input_schema": {},
+              "name": "getTargetDocumentTextContext",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,r){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,r){t.__proto__=r}||function(t,r){for(var n in r)Object.prototype.hasOwnProperty.call(r,n)&&(t[n]=r[n])},extendStatics(t,r)};function __extends(t,r){if(\"function\"!=typeof r&&null!==r)throw new TypeError(\"Class extends value \"+String(r)+\" is not a constructor or null\");function n(){this.constructor=t}extendStatics(t,r),t.prototype=null===r?Object.create(r):(n.prototype=r.prototype,new n)}\"function\"==typeof SuppressedError&&SuppressedError;var ScriptError=function(t){function r(r,n){var e=t.call(this,n)||this;return e.code=r,e}return __extends(r,t),r}(Error);function getTargetDocumentTextContext(t){var r=Application(\"Microsoft Word\");if(!r.running())throw new ScriptError(1,\"not running\");for(var n,e=r.documents(),o=0;o<e.length;o++){var c=e[o];if(c.name()==t.fileName){n=c;break}}if(!n)throw new ScriptError(2,\"not found document\");var i=n.textObject.content(),s=n.activeWindow.selection.textObject.content();return{text:i,selections:s?[{content:s}]:[]}}\n"
+            }
+          ],
+          "script_type": "JXA"
+        },
+        "app_share_type": "script",
+        "min_app_version": 0
+      },
+      {
+        "app_id": "mac_microsoft_excel",
+        "app_share_interaction_type": "excel",
+        "app_share_script_info": {
+          "functions": [
+            {
+              "description": "Returns an array of objects containing information about the most recent context changes in the document.",
+              "input_schema": {},
+              "name": "getRecentContextInfo",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,e){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,e){t.__proto__=e}||function(t,e){for(var n in e)Object.prototype.hasOwnProperty.call(e,n)&&(t[n]=e[n])},extendStatics(t,e)};function __extends(t,e){if(\"function\"!=typeof e&&null!==e)throw new TypeError(\"Class extends value \"+String(e)+\" is not a constructor or null\");function n(){this.constructor=t}extendStatics(t,e),t.prototype=null===e?Object.create(e):(n.prototype=e.prototype,new n)}\"function\"==typeof SuppressedError&&SuppressedError;var ScriptError=function(t){function e(e,n){var r=t.call(this,n)||this;return r.code=e,r}return __extends(e,t),e}(Error);function getOfficeBasicInfo(t,e){var n,r,o=t.fullName(),i=!1,s=!1;return 1===o.split(\".\").length?i=!0:0!==o.indexOf(\"http://\")&&0!==o.indexOf(\"https://\")||(s=!0),n=t.hasPassword(),r=t.saved(),{name:t.name(),path:o,isTemp:i,isRemote:s,hasPassword:n,saved:r}}function getExcelBasicInfo(t){return getOfficeBasicInfo(t)}function getRecentContextInfo(t){var e=Application(\"Microsoft Excel\");if(!e.running())throw new ScriptError(1,\"not running\");var n=e.activeWorkbook;if(!n())return{infos:[]};var r=getExcelBasicInfo(n);return{infos:[{type:\"file\",fileInfo:{name:e.activeWorkbook.name(),path:r.path,isTemp:r.isTemp,isRemote:r.isRemote,hasPassword:r.hasPassword,saved:r.saved,isEmpty:!1},meta:{sheetName:n.activeSheet.name()},timestamp:Date.now()}]}}\n"
+            },
+            {
+              "description": "Returns an array of objects containing the text content of the most recent context changes in the document.",
+              "input_schema": {},
+              "name": "getRecentContextTextContent",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,e){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,e){t.__proto__=e}||function(t,e){for(var n in e)Object.prototype.hasOwnProperty.call(e,n)&&(t[n]=e[n])},extendStatics(t,e)};function __extends(t,e){if(\"function\"!=typeof e&&null!==e)throw new TypeError(\"Class extends value \"+String(e)+\" is not a constructor or null\");function n(){this.constructor=t}extendStatics(t,e),t.prototype=null===e?Object.create(e):(n.prototype=e.prototype,new n)}\"function\"==typeof SuppressedError&&SuppressedError;var ScriptError=function(t){function e(e,n){var r=t.call(this,n)||this;return r.code=e,r}return __extends(e,t),e}(Error);function getOfficeBasicInfo(t,e){var n,r,o=t.fullName(),i=!1,a=!1;return 1===o.split(\".\").length?i=!0:0!==o.indexOf(\"http://\")&&0!==o.indexOf(\"https://\")||(a=!0),n=t.hasPassword(),r=t.saved(),{name:t.name(),path:o,isTemp:i,isRemote:a,hasPassword:n,saved:r}}function getExcelBasicInfo(t){return getOfficeBasicInfo(t)}function GetExcelSheetRangeText(t){var e=t.value2();if(void 0===e)return\"\";if(\"number\"==typeof e||\"string\"==typeof e)return\"\"+e;if(e.length>0){for(var n=\"\",r=0;r<e.length;r++)n+=e[r].join(\"\\n\");return n}return\"\"}function getRecentContextTextContent(t){var e=Application(\"Microsoft Excel\");if(!e.running())throw new ScriptError(1,\"not running\");var n=e.activeWorkbook;if(!n())throw new ScriptError(2,\"not found active document\");var r=getExcelBasicInfo(n),o=GetExcelSheetRangeText(n.activeSheet.usedRange),i=GetExcelSheetRangeText(e.activeWindow.selection);return{contexts:[{info:{type:\"file\",fileInfo:{name:e.activeWorkbook.name(),path:r.path,isTemp:r.isTemp,isRemote:r.isRemote,hasPassword:r.hasPassword,saved:r.saved,isEmpty:!1},meta:{sheetName:n.activeSheet.name()},timestamp:Date.now()},textContent:{text:o,selections:i?[{content:i}]:[]}}]}}\n"
+            },
+            {
+              "description": "Returns an array of objects containing information about the most recent context changes in the document.",
+              "input_schema": {},
+              "name": "getWorkbooksList",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,e){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,e){t.__proto__=e}||function(t,e){for(var r in e)Object.prototype.hasOwnProperty.call(e,r)&&(t[r]=e[r])},extendStatics(t,e)};function __extends(t,e){if(\"function\"!=typeof e&&null!==e)throw new TypeError(\"Class extends value \"+String(e)+\" is not a constructor or null\");function r(){this.constructor=t}extendStatics(t,e),t.prototype=null===e?Object.create(e):(r.prototype=e.prototype,new r)}\"function\"==typeof SuppressedError&&SuppressedError;var MAX_DOCUMENT_LIST_SIZE=50,ScriptError=function(t){function e(e,r){var o=t.call(this,r)||this;return o.code=e,o}return __extends(e,t),e}(Error);function HFSPathToUnixPath(t){return\"/Volumes/\"+t.replace(/\\:/g,\"/\")}function getOfficeBasicInfo(t,e){var r,o,n=t.fullName(),s=!1,i=!1;return 1===n.split(\".\").length?s=!0:0!==n.indexOf(\"http://\")&&0!==n.indexOf(\"https://\")||(i=!0),r=t.hasPassword(),o=t.saved(),{name:t.name(),path:s||i?n:e?HFSPathToUnixPath(n):n,isTemp:s,isRemote:i,hasPassword:r,saved:o}}function getExcelBasicInfo(t){return getOfficeBasicInfo(t,!1)}function getWorkbooksList(t){var e=Application(\"Microsoft Excel\");if(!e.running())throw new ScriptError(1,\"not running\");var r=e.workbooks();if(!r)return{workbooks:[]};for(var o=[],n=r.length>MAX_DOCUMENT_LIST_SIZE?MAX_DOCUMENT_LIST_SIZE:r.length,s=0;s<n;s++){for(var i=r[s],a=getExcelBasicInfo(i),c=[],f=i.sheets(),u=0;u<f.length;u++){var p=f[u];c.push({sheetName:p.name()})}o.push({fileName:i.name(),filePath:a.path,isTemp:a.isTemp,isRemote:a.isRemote,hasPassword:a.hasPassword,saved:a.saved,isEmpty:!1,worksheets:c})}return{workbooks:o}}\n"
+            },
+            {
+              "description": "Returns an array of objects containing information about the most recent context changes in the document.",
+              "input_schema": {},
+              "name": "getTargetWorksheetContext",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(e,t){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(e,t){e.__proto__=t}||function(e,t){for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(e[r]=t[r])},extendStatics(e,t)};function __extends(e,t){if(\"function\"!=typeof t&&null!==t)throw new TypeError(\"Class extends value \"+String(t)+\" is not a constructor or null\");function r(){this.constructor=e}extendStatics(e,t),e.prototype=null===t?Object.create(t):(r.prototype=t.prototype,new r)}\"function\"==typeof SuppressedError&&SuppressedError;var ScriptError=function(e){function t(t,r){var n=e.call(this,r)||this;return n.code=t,n}return __extends(t,e),t}(Error);function getColumnLetter(e){for(var t=\"\";e>0;){var r=(e-1)%26;t=String.fromCharCode(65+r)+t,e=Math.floor((e-1)/26)}return t}function getRangeArea(e){return getColumnLetter(e.firstColumnIndex())+e.firstRowIndex()+\":\"+getColumnLetter(e.firstColumnIndex()+e.columns.length-1)+(e.firstRowIndex()+e.rows.length-1)}function GetExcelSheetRangeData(e){var t=e.value2(),r=[];return void 0===t&&(r=[]),\"number\"!=typeof t&&\"string\"!=typeof t||(r=[t]),t.reduce&&(r=t.reduce((function(e,t){return e.concat(t)}),[])),{values:r,columns:e.columns.length,rows:e.rows.length,area:getRangeArea(e)}}function getTargetWorksheetContext(e){var t=Application(\"Microsoft Excel\");if(!t.running())throw new ScriptError(1,\"not running\");for(var r,n,o=t.workbooks(),a=0;a<o.length;a++){var i=o[a];if(i.name()==e.fileName){r=i;for(var c=i.sheets(),u=0;u<c.length;u++){var s=c[u];if(s.name()==e.sheetName){n=s;break}}break}}if(!n)throw new ScriptError(2,\"not found target sheet\");var f=r.activeSheet.name()==e.sheetName&&t.activeWorkbook.name()==e.fileName;return{usedRange:GetExcelSheetRangeData(n.usedRange),selectedRange:f?[GetExcelSheetRangeData(t.activeWindow.selection)]:[]}}\n"
+            }
+          ],
+          "script_type": "JXA"
+        },
+        "app_share_type": "script",
+        "min_app_version": 0
+      },
+      {
+        "app_id": "mac_microsoft_ppt",
+        "app_share_interaction_type": "ppt",
+        "app_share_script_info": {
+          "functions": [
+            {
+              "description": "Returns an array of objects containing information about the most recent context changes in the document.",
+              "input_schema": {},
+              "name": "getRecentContextInfo",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,e){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,e){t.__proto__=e}||function(t,e){for(var n in e)Object.prototype.hasOwnProperty.call(e,n)&&(t[n]=e[n])},extendStatics(t,e)};function __extends(t,e){if(\"function\"!=typeof e&&null!==e)throw new TypeError(\"Class extends value \"+String(e)+\" is not a constructor or null\");function n(){this.constructor=t}extendStatics(t,e),t.prototype=null===e?Object.create(e):(n.prototype=e.prototype,new n)}\"function\"==typeof SuppressedError&&SuppressedError;var ScriptError=function(t){function e(e,n){var r=t.call(this,n)||this;return r.code=e,r}return __extends(e,t),e}(Error);function getPPTBasicInfo(t){var e=t.fullName(),n=!1,r=!1;return 1===e.split(\".\").length?n=!0:0!==e.indexOf(\"http://\")&&0!==e.indexOf(\"https://\")||(r=!0),{name:t.name(),path:e,isTemp:n,isRemote:r,hasPassword:!1,saved:!!t.saved()}}function getRecentContextInfo(t){var e=Application(\"Microsoft PowerPoint\");if(!e.running())throw new ScriptError(1,\"not running\");var n=e.activePresentation;if(!n())return{infos:[]};var r=getPPTBasicInfo(n);return{infos:[{type:\"file\",fileInfo:{name:r.name,path:r.path,isTemp:r.isTemp,isRemote:r.isRemote,hasPassword:r.hasPassword,saved:r.saved,isEmpty:!1},timestamp:Date.now()}]}}\n"
+            },
+            {
+              "description": "Returns an array of objects containing information about all open presentations.",
+              "input_schema": {},
+              "name": "getPresentationList",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,e){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,e){t.__proto__=e}||function(t,e){for(var n in e)Object.prototype.hasOwnProperty.call(e,n)&&(t[n]=e[n])},extendStatics(t,e)};function __extends(t,e){if(\"function\"!=typeof e&&null!==e)throw new TypeError(\"Class extends value \"+String(e)+\" is not a constructor or null\");function n(){this.constructor=t}extendStatics(t,e),t.prototype=null===e?Object.create(e):(n.prototype=e.prototype,new n)}\"function\"==typeof SuppressedError&&SuppressedError;var MAX_DOCUMENT_LIST_SIZE=50,ScriptError=function(t){function e(e,n){var r=t.call(this,n)||this;return r.code=e,r}return __extends(e,t),e}(Error);function getPPTBasicInfo(t){var e=t.fullName(),n=!1,r=!1;return 1===e.split(\".\").length?n=!0:0!==e.indexOf(\"http://\")&&0!==e.indexOf(\"https://\")||(r=!0),{name:t.name(),path:e,isTemp:n,isRemote:r,hasPassword:!1,saved:!!t.saved()}}function getPresentationList(t){var e=Application(\"Microsoft PowerPoint\");if(!e.running())throw new ScriptError(1,\"not running\");var n=e.presentations();if(!n)return{presentations:[]};for(var r=[],o=n.length>MAX_DOCUMENT_LIST_SIZE?MAX_DOCUMENT_LIST_SIZE:n.length,i=0;i<o;i++){var s=n[i],a=getPPTBasicInfo(s);r.push({fileName:a.name,filePath:a.path,isTemp:a.isTemp,isRemote:a.isRemote,hasPassword:a.hasPassword,saved:a.saved,isEmpty:!1})}return{presentations:r}}\n"
+            }
+          ],
+          "script_type": "JXA"
+        },
+        "app_share_type": "script",
+        "min_app_version": 0
+      },
+      {
+        "app_id": "mac_preview",
+        "app_share_interaction_type": "file",
+        "app_share_script_info": {
+          "functions": [
+            {
+              "description": "Returns an array of objects containing information about the most recent context changes in the document.",
+              "input_schema": {},
+              "name": "getRecentContextInfo",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,n){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,n){t.__proto__=n}||function(t,n){for(var e in n)Object.prototype.hasOwnProperty.call(n,e)&&(t[e]=n[e])},extendStatics(t,n)};function __extends(t,n){if(\"function\"!=typeof n&&null!==n)throw new TypeError(\"Class extends value \"+String(n)+\" is not a constructor or null\");function e(){this.constructor=t}extendStatics(t,n),t.prototype=null===n?Object.create(n):(e.prototype=n.prototype,new e)}\"function\"==typeof SuppressedError&&SuppressedError;var ScriptError=function(t){function n(n,e){var r=t.call(this,e)||this;return r.code=n,r}return __extends(n,t),n}(Error);function getRecentContextInfo(t){var n=Application(\"Preview\");if(!n.running())throw new ScriptError(1,\"not running\");for(var e=n.windows(),r=e[0],o=e[0].index(),i=1;i<e.length;i++){var s=e[i];s.index()<o&&(r=s)}var c=r.document();return{infos:[{type:\"file\",fileInfo:{name:c.name(),path:c.path(),isTemp:!1,isRemote:!1,hasPassword:!1,saved:!1,isEmpty:!1},timestamp:Date.now()}]}}\n"
+            },
+            {
+              "description": "Returns an array of objects containing information about all open documents.",
+              "input_schema": {},
+              "name": "getFileList",
+              "output_schema": {},
+              "script": "\"use strict\";var extendStatics=function(t,r){return extendStatics=Object.setPrototypeOf||{__proto__:[]}instanceof Array&&function(t,r){t.__proto__=r}||function(t,r){for(var e in r)Object.prototype.hasOwnProperty.call(r,e)&&(t[e]=r[e])},extendStatics(t,r)};function __extends(t,r){if(\"function\"!=typeof r&&null!==r)throw new TypeError(\"Class extends value \"+String(r)+\" is not a constructor or null\");function e(){this.constructor=t}extendStatics(t,r),t.prototype=null===r?Object.create(r):(e.prototype=r.prototype,new e)}\"function\"==typeof SuppressedError&&SuppressedError;var MAX_DOCUMENT_LIST_SIZE=50,ScriptError=function(t){function r(r,e){var n=t.call(this,e)||this;return n.code=r,n}return __extends(r,t),r}(Error);function getFileList(t){var r=Application(\"Preview\");if(!r.running())throw new ScriptError(1,\"not running\");var e=r.documents();if(!e)return{files:[]};for(var n=[],o=e.length>MAX_DOCUMENT_LIST_SIZE?MAX_DOCUMENT_LIST_SIZE:e.length,i=0;i<o;i++){var s=e[i];n.push({fileName:s.name(),filePath:s.path(),isTemp:!1,isRemote:!1,hasPassword:!1,saved:!0})}return{files:n}}\n"
+            }
+          ],
+          "script_type": "JXA"
+        },
+        "app_share_type": "script",
+        "min_app_version": 17300
+      },
+      {
+        "app_id": "mac_adobe_acrobat_reader",
+        "app_share_inner_impl_info": {
+          "impl_id": "MacAdobeAcrobatReaderProxy"
+        },
+        "app_share_interaction_type": "file",
+        "app_share_type": "inner_impl",
+        "min_app_version": 17300
+      },
+      {
+        "app_id": "mac_chrome",
+        "app_share_interaction_type": "browser",
+        "app_share_plugin_info": {
+          "need_login": true,
+          "plugin_id": "chrome_plugin"
+        },
+        "app_share_type": "plugin"
+      },
+      {
+        "app_id": "mac_edge",
+        "app_share_interaction_type": "browser",
+        "app_share_plugin_info": {
+          "need_login": true,
+          "plugin_id": "edge_plugin"
+        },
+        "app_share_type": "plugin"
+      },
+      {
+        "app_id": "mac_vscode",
+        "app_share_interaction_type": "code",
+        "app_share_plugin_info": {
+          "need_login": false,
+          "plugin_id": "vscode_plugin"
+        },
+        "app_share_type": "plugin"
+      },
+      {
+        "app_id": "mac_iterm2",
+        "app_share_inner_impl_info": {
+          "impl_id": "MacItermProxy"
+        },
+        "app_share_interaction_type": "terminal",
+        "app_share_type": "inner_impl"
+      },
+      {
+        "app_id": "mac_terminal",
+        "app_share_inner_impl_info": {
+          "impl_id": "MacTerminalProxy"
+        },
+        "app_share_interaction_type": "terminal",
+        "app_share_type": "inner_impl"
+      },
+      {
+        "app_id": "samantha",
+        "app_share_interaction_atype": "samantha",
+        "app_share_interaction_type": "samantha",
+        "app_share_plugin_info": {
+          "need_login": true,
+          "plugin_id": "samantha_plugin"
+        },
+        "app_share_type": "plugin",
+        "min_app_version": 15900
+      }
+    ],
+    "default_notify_app_list": [
+      "mac_microsoft_word",
+      "mac_microsoft_excel",
+      "mac_microsoft_ppt",
+      "mac_vscode",
+      "mac_preview",
+      "mac_adobe_acrobat_reader"
+    ],
+    "not_supported_app_ids": [
+      "mac_microsoft_ppt"
+    ],
+    "enable_plugin_login_pre_check": true,
+    "plugin_origin_whitelist": [
+      "chrome-extension://obkcimipmjdkghadnfcjojepocldeggd",
+      "chrome-extension://dbjibobgilijgolhjdcbdebjhejelffo",
+      "chrome-extension://capohkkfagimodmlpnahjoijgoocdjhd",
+      "doubao-app-share-for-vscode-plugin"
+    ]
+  },
+  "saman_system_app_config": {
+    "app_list": [
+      {
+        "app_automation_request_script": "Application('Microsoft Word').documents();",
+        "app_find_info": {
+          "id": "com.microsoft.Word"
+        },
+        "app_id": "mac_microsoft_word",
+        "app_name": "Microsoft Word",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_automation_request_script": "Application('Microsoft Excel').workbooks();",
+        "app_find_info": {
+          "id": "com.microsoft.Excel"
+        },
+        "app_id": "mac_microsoft_excel",
+        "app_name": "Microsoft Excel",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_automation_request_script": "Application('Microsoft PowerPoint').presentations();",
+        "app_find_info": {
+          "id": "com.microsoft.Powerpoint"
+        },
+        "app_id": "mac_microsoft_ppt",
+        "app_name": "Microsoft PowerPoint",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_find_info": {
+          "id": "com.googlecode.iterm2"
+        },
+        "app_id": "mac_iterm2",
+        "app_name": "iTerm",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_find_info": {
+          "id": "com.apple.Terminal"
+        },
+        "app_id": "mac_terminal",
+        "app_name": "Terminal",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_find_info": {
+          "id": "com.google.Chrome"
+        },
+        "app_id": "mac_chrome",
+        "app_name": "Google Chrome",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_find_info": {
+          "id": "com.microsoft.edgemac"
+        },
+        "app_id": "mac_edge",
+        "app_name": "Microsoft Edge",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_find_info": {
+          "id": "com.microsoft.VSCode"
+        },
+        "app_id": "mac_vscode",
+        "app_name": "Visual Studio Code",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_automation_request_script": "Application('Preview').documents();",
+        "app_find_info": {
+          "id": "com.apple.Preview"
+        },
+        "app_id": "mac_preview",
+        "app_name": "Preview",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_find_info": {
+          "id": "com.adobe.Acrobat.Pro"
+        },
+        "app_id": "mac_adobe_acrobat_reader",
+        "app_name": "Adobe Acrobat Reader",
+        "app_type": "mac_normal"
+      },
+      {
+        "app_id": "samantha",
+        "app_name": "samantha",
+        "app_type": "samantha"
+      }
+    ],
+    "enable_create_local_file_mapping_appid_list": [
+      "mac_microsoft_excel",
+      "mac_microsoft_word",
+      "mac_microsoft_ppt",
+      "mac_adobe_acrobat_reader",
+      "mac_preview"
+    ],
+    "update_app_info_time_interval_limit": 3600
+  },
+  "saman_sync_config": {
+    "saman_native_sync_enabled": false,
+    "saman_bookmark_sync_dual_write_enabled": true
+  }
+}

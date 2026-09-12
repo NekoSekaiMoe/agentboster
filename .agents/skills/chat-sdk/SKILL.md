@@ -1,160 +1,71 @@
 ---
 name: chat-sdk
-description: >
-  Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to
-  (1) Build a Slack, Teams, Google Chat, Discord, GitHub, or Linear bot,
-  (2) Use the Chat SDK to handle mentions, messages, reactions, slash commands, cards, modals, or streaming,
-  (3) Set up webhook handlers for chat platforms,
-  (4) Send interactive cards or stream AI responses to chat platforms,
-  (5) Build a custom adapter for a new chat platform.
-  Triggers on "chat sdk", "chat bot", "slack bot", "teams bot", "discord bot", "@chat-adapter",
-  "custom adapter", "build adapter", building bots that work across multiple chat platforms.
+description: Build multi-platform chat bots with Chat SDK (`chat` npm package). Use when developers want to scaffold a bot with create-chat-sdk, build a Slack, Teams, Google Chat, Discord, Telegram, GitHub, Linear, or WhatsApp bot, handle mentions, direct messages, subscribed threads, reactions, slash commands, cards, modals, files, or AI streaming, set up webhook routes or multi-adapter bots, send rich cards or streamed AI responses to chat platforms, or build a custom adapter or state adapter.
+license: MIT
 ---
 
 # Chat SDK
 
-Unified TypeScript SDK for building chat bots across Slack, Teams, Google Chat, Discord, GitHub, and Linear. Write bot logic once, deploy everywhere.
+Unified TypeScript SDK for building chat bots across Slack, Microsoft Teams, Google Chat, Discord, Telegram, GitHub, Linear, WhatsApp, and more. Write your bot logic once, deploy everywhere.
 
-## Critical: Read the bundled docs
+## Scaffold a new project
 
-The `chat` package ships with full documentation in `node_modules/chat/docs/` and TypeScript source types. **Always read these before writing code:**
+Use `create-chat-sdk` to scaffold a basic Next.js bot project without prompts. Run `npx create-chat-sdk --help` to see the available options and how the CLI works.
 
-```
-node_modules/chat/docs/           # Full documentation (MDX files)
-node_modules/chat/dist/           # Built types (.d.ts files)
-```
+## Start with Chat SDK documentation
 
-Key docs to read based on task:
-- `docs/getting-started.mdx` — setup guides
-- `docs/usage.mdx` — event handlers, threads, messages, channels
-- `docs/streaming.mdx` — AI streaming with AI SDK
-- `docs/cards.mdx` — JSX interactive cards
-- `docs/actions.mdx` — button/dropdown handlers
-- `docs/modals.mdx` — form dialogs (Slack only)
-- `docs/adapters.mdx` — platform-specific adapter setup
-- `docs/state.mdx` — state adapter config (Redis, ioredis, PostgreSQL, memory)
+When Chat SDK is installed in a user's project, inspect the published docs that ship in `node_modules/chat/docs/`, the resources in `node_modules/chat/resources/`, and the available open source templates in `node_modules/chat/resources/templates.json`.
 
-Also read the TypeScript types from `node_modules/chat/dist/` to understand the full API surface.
+If those paths do not exist, the `chat` package is not installed in the project yet. The user can install it with `npm i chat`.
 
-## Quick start
+You can also find the docs on the [Chat SDK website](https://chat-sdk.dev/docs) and in the [Vercel knowledge base](https://vercel.com/kb/chat-sdk).
 
-```typescript
-import { Chat } from "chat";
-import { createSlackAdapter } from "@chat-adapter/slack";
-import { createRedisState } from "@chat-adapter/state-redis";
+## Available resources
 
-const bot = new Chat({
-  userName: "mybot",
-  adapters: {
-    slack: createSlackAdapter({
-      botToken: process.env.SLACK_BOT_TOKEN!,
-      signingSecret: process.env.SLACK_SIGNING_SECRET!,
-    }),
-  },
-  state: createRedisState({ url: process.env.REDIS_URL! }),
-});
+<!-- RESOURCES:START -->
 
-bot.onNewMention(async (thread) => {
-  await thread.subscribe();
-  await thread.post("Hello! I'm listening to this thread.");
-});
+### Guides
 
-bot.onSubscribedMessage(async (thread, message) => {
-  await thread.post(`You said: ${message.text}`);
-});
-```
+- `node_modules/chat/resources/guides/how-to-build-an-ai-agent-for-slack-with-chat-sdk-and-ai-sdk.md` — Build a Slack AI agent using Chat SDK, AI SDK's ToolLoopAgent, and Vercel AI Gateway. Covers project setup, tool definitions, streaming responses, deployment to Vercel, and scaling tool selection with toolpick.
+- `node_modules/chat/resources/guides/human-in-the-loop-with-chat-sdk-and-workflow-sdk.md` — Pause durable workflows on Slack approval cards using Chat SDK and Workflow SDK. Uses createWebhook to suspend workflows until a button click, with patterns for multi-stage approvals, timeouts via durable sleep, and approver validation.
+- `node_modules/chat/resources/guides/liveblocks-chat-sdk-ai-sdk.md` — Build an AI agent that replies to @-mentions in Liveblocks comment threads with streamed responses and tool calling. Uses Chat SDK, the Liveblocks adapter, AI SDK's ToolLoopAgent, and Redis for thread subscriptions and distributed locking.
+- `node_modules/chat/resources/guides/slack-bot-vercel-blob.md` — Build a Slack bot that lists, reads, uploads, and deletes files in Vercel Blob through tool calls. Uses Chat SDK, AI SDK's ToolLoopAgent, and Files SDK's createFileTools factory with approval-gated write tools and a read-only mode.
+- `node_modules/chat/resources/guides/run-and-track-deploys-from-slack.md` — Build a Slack deploy bot with Chat SDK and Vercel Workflow. Dispatch GitHub Actions from a slash command, gate production behind approval, poll for completion, and notify Linear and GitHub when the run finishes.
+- `node_modules/chat/resources/guides/triage-form-submissions-with-chat-sdk.md` — Build a Slack bot that triages form submissions with interactive cards. Forward, edit, or mark as spam without leaving Slack. Built with Chat SDK, Hono, and Resend.
+- `node_modules/chat/resources/guides/how-to-build-a-slack-bot-with-next-js-and-redis.md` — This guide walks through building a Slack bot with Next.js, covering project setup, Slack app configuration, event handling, interactive features, and deployment.
+- `node_modules/chat/resources/guides/create-a-discord-support-bot-with-nuxt-and-redis.md` — This guide walks through building a Discord support bot with Nuxt, covering project setup, Discord app configuration, Gateway forwarding, AI-powered responses, and deployment.
+- `node_modules/chat/resources/guides/ship-a-github-code-review-bot-with-hono-and-redis.md` — This guide walks through building a GitHub bot that reviews pull requests on demand. When a user @mentions the bot on a PR, Chat SDK picks up the mention, spins up a Vercel Sandbox with the repo cloned, and uses AI SDK to analyze the diff.
+- `node_modules/chat/resources/guides/build-a-slack-bot-with-vercel-connect.md` — Learn how to build your very own Slackbot with Chat SDK and AI SDK. Vercel Connect supplies runtime Slack tokens and forwards triggers, so you never store a long-lived bot token.
+- `node_modules/chat/resources/guides/vercel-connect.md` — Use Vercel Connect to call provider APIs like Slack, GitHub, and Snowflake from your agents and services with short-lived, user-authorized tokens instead of long-lived secrets.
+- `node_modules/chat/resources/guides/ai-gateway-and-ai-sdk.md` — Build AI agents on Vercel with AI Gateway and AI SDK, then make them reliable, capable, and durable with Sandbox, Chat SDK, Vercel Connect, and Workflow.
+- `node_modules/chat/resources/guides/daily-digest-bot-with-chat-sdk-and-workflow-sdk.md` — Create your own daily digest bot that posts a daily digest of GitHub stats to Slack. Learn how to use Vercel Connect to set up Slack and GitHub app securely in your project.
 
-## Core concepts
+### Templates
 
-- **Chat** — main entry point, coordinates adapters and routes events
-- **Adapters** — platform-specific (Slack, Teams, GChat, Discord, GitHub, Linear)
-- **State** — pluggable persistence (Redis or PostgreSQL for prod, memory for dev)
-- **Thread** — conversation thread with `post()`, `schedule()`, `subscribe()`, `startTyping()`
-- **Message** — normalized format with `text`, `formatted` (mdast AST), `raw`
-- **Channel** — container for threads, supports listing and posting
+Listed in `node_modules/chat/resources/templates.json`:
 
-## Event handlers
+- **Chat SDK Liveblocks Bot** — Build a bot that you can engage with inside Liveblocks. (https://vercel.com/templates/next.js/chat-sdk-liveblocks-bot)
+- **Durable iMessage Agent** — Durable iMessage agent powered by the Sendblue adapter. (https://vercel.com/templates/nitro/durable-imessage-ai-agent)
+- **Knowledge Agent** — Open source file-system and knowledge based agent template. Build AI agents that stay up to date with your knowledge base. (https://vercel.com/templates/nuxt/chat-sdk-knowledge-agent)
+- **Community Agent** — Open source AI-powered Slack community management bot with a built-in Next.js admin panel. Uses Chat SDK, AI SDK, and Vercel Workflow. (https://vercel.com/templates/next.js/chat-sdk-community-agent)
+- **Caltext** — iMessage calorie tracking assistant powered by AI. (https://vercel.com/templates/hono/caltext)
 
-| Handler | Trigger |
-|---------|---------|
-| `onNewMention` | Bot @-mentioned in unsubscribed thread |
-| `onSubscribedMessage` | Any message in subscribed thread |
-| `onNewMessage(regex)` | Messages matching pattern in unsubscribed threads |
-| `onSlashCommand("/cmd")` | Slash command invocations |
-| `onReaction(emojis)` | Emoji reactions added/removed |
-| `onAction(actionId)` | Button clicks and dropdown selections |
-| `onAssistantThreadStarted` | Slack Assistants API thread opened |
-| `onAppHomeOpened` | Slack App Home tab opened |
+<!-- RESOURCES:END -->
 
-## Streaming
+## Chat SDK adapters
 
-Pass any `AsyncIterable<string>` to `thread.post()`. Works with AI SDK's `textStream`:
+### Adapter directory
 
-```typescript
-import { ToolLoopAgent } from "ai";
-const agent = new ToolLoopAgent({ model: "anthropic/claude-4.5-sonnet" });
+See the 'Official Adapters', 'Vendor-Official Adapters', and 'Community Adapters' sections in the [Chat SDK llms.txt file](https://chat-sdk.dev/llms.txt) for the current list of official, vendor-official, and community adapters.
 
-bot.onNewMention(async (thread, message) => {
-  const result = await agent.stream({ prompt: message.text });
-  await thread.post(result.textStream);
-});
-```
+### Adapter catalog subpath
 
-## Cards (JSX)
+Chat SDK exposes a zero-dependency static catalog at `chat/adapters`.
 
-Set `jsxImportSource: "chat"` in tsconfig. Components: `Card`, `CardText`, `Button`, `Actions`, `Fields`, `Field`, `Select`, `SelectOption`, `Image`, `Divider`, `LinkButton`, `Section`, `RadioSelect`.
+Agents can import `ADAPTERS`, `ADAPTER_NAMES`, `getAdapter`, `isAdapterSlug`, `listEnvVars`, `getSecretEnvVars`, and metadata types like `CatalogAdapter` and `AdapterSlug` from this subpath without importing any adapter implementation package.
 
-```tsx
-await thread.post(
-  <Card title="Order #1234">
-    <CardText>Your order has been received!</CardText>
-    <Actions>
-      <Button id="approve" style="primary">Approve</Button>
-      <Button id="reject" style="danger">Reject</Button>
-    </Actions>
-  </Card>
-);
-```
-
-## Packages
-
-| Package | Purpose |
-|---------|---------|
-| `chat` | Core SDK |
-| `@chat-adapter/slack` | Slack |
-| `@chat-adapter/teams` | Microsoft Teams |
-| `@chat-adapter/gchat` | Google Chat |
-| `@chat-adapter/discord` | Discord |
-| `@chat-adapter/github` | GitHub Issues |
-| `@chat-adapter/linear` | Linear Issues |
-| `@chat-adapter/state-redis` | Redis state (production) |
-| `@chat-adapter/state-ioredis` | ioredis state (alternative) |
-| `@chat-adapter/state-pg` | PostgreSQL state (production) |
-| `@chat-adapter/state-memory` | In-memory state (development) |
-
-## Changesets (Release Flow)
-
-This monorepo uses [Changesets](https://github.com/changesets/changesets) for versioning and changelogs. Every PR that changes a package's behavior must include a changeset.
-
-```bash
-pnpm changeset
-# → select affected package(s) (e.g. @chat-adapter/slack, chat)
-# → choose bump type: patch (fixes), minor (features), major (breaking)
-# → write a short summary for the CHANGELOG
-```
-
-This creates a file in `.changeset/` — commit it with the PR. When merged to `main`, the Changesets GitHub Action opens a "Version Packages" PR to bump versions and update CHANGELOGs. Merging that PR publishes to npm.
-
-## Building a custom adapter
-
-To create a community or vendor adapter, implement the `Adapter` interface from `chat` and read:
-
-- `docs/contributing/building.mdx` — full step-by-step guide (uses a Matrix adapter as example)
-- `docs/contributing/testing.mdx` — testing your adapter
-- `docs/contributing/publishing.mdx` — npm naming conventions and publishing
-
-The adapter must implement `handleWebhook`, `parseMessage`, `postMessage`, `editMessage`, `deleteMessage`, thread ID encoding/decoding, and a `FormatConverter` (extend `BaseFormatConverter` from `chat`). Use `@chat-adapter/shared` for error classes and message utilities.
-
-## Webhook setup
-
-Each adapter exposes a webhook handler via `bot.webhooks.{platform}`. Wire these to your HTTP framework's routes (e.g. Next.js API routes, Hono, Express).
+Use it for:
+- Listing official and vendor-official adapter slugs, names, npm packages, groups, and platform vs state types.
+- Building setup or onboarding flows that need package names, peer dependencies, and install guidance before any adapter is installed.
+- Discovering required, optional, and credential-mode environment variables for an adapter, including which variables are secrets.
+- Keeping vendor-official adapter docs and metadata aligned with the catalog when adding or updating a listed adapter.
