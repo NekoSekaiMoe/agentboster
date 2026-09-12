@@ -22,6 +22,11 @@ export {
 } from './knowledge';
 export { scheduledTasks } from './scheduled';
 export { scheduledTaskRuns } from './scheduled-task-runs';
+export { sessionHeartbeats } from './heartbeat';
+export type {
+  SessionHeartbeat,
+  NewSessionHeartbeat,
+} from './heartbeat';
 export { dreamRuns } from './dream';
 export type { DreamRun } from './dream';
 export {
