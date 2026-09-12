@@ -20,6 +20,13 @@ import { instructionHookBuilder } from './hooks';
 import { postRunCleanupWorkflow } from './post-run-cleanup';
 import { acquireRunLockStep, releaseRunLockStep } from './workspace-lock';
 import {
+  deliverHeartbeatReplyStep,
+  extractFinalAssistantText,
+  extractHeartbeatDecision,
+  recordHeartbeatOutcomeStep,
+} from './steps/heartbeat';
+import { HEARTBEAT_DECISION_TOOL_NAME } from './tools/heartbeat/decision';
+import {
   createWritable,
   writeMessageMetadata,
   writeStreamClose,
@@ -341,6 +348,19 @@ export async function chatWorkflow(
    * instead of throwing.
    */
   requestAgent?: string | null,
+  /**
+   * Scheduled heartbeat wake-up (proactive-speak decision). When true:
+   *   - the first model call is FORCED to the heartbeat_decision tool
+   *     (tool_choice=tool, arkloop semantics) — the model must decide
+   *     "speak or stay silent" before composing anything;
+   *   - reply=false stops all delivery (the run output is discarded);
+   *   - reply=true delivers the final assistant text to the session's IM
+   *     thread via sendAdapterSourceReply after the stream completes.
+   * The synthetic heartbeat instruction arrives as the LAST user message
+   * of `initialMessages` (injected by the heartbeat dispatcher, NOT
+   * persisted — every cycle must not pollute the transcript).
+   */
+  heartbeat?: boolean,
 ) {
   'use workflow';
 
@@ -469,6 +489,9 @@ export async function chatWorkflow(
       workspaceLockAcquired:
         workspaceLockHandle.workspaceId !== null &&
         workspaceLockHandle.execSessionId !== null,
+      // Heartbeat wake-up: gates the heartbeat_decision executor and (below)
+      // forces the first model call to that tool.
+      heartbeat,
     });
     const maxSteps = Math.max(
       1,
@@ -761,6 +784,18 @@ export async function chatWorkflow(
 
           return {
             messages: finalMessages,
+            // Heartbeat: force the FIRST model call to the decision tool
+            // (arkloop tool_choice=specific). Later steps are unconstrained
+            // so the model can gather context with read tools after
+            // deciding to speak.
+            ...(heartbeat && stepNumber === 0
+              ? {
+                  toolChoice: {
+                    type: 'tool' as const,
+                    toolName: HEARTBEAT_DECISION_TOOL_NAME,
+                  },
+                }
+              : {}),
           };
         },
         onStepFinish: async (step) => {
@@ -880,6 +915,57 @@ export async function chatWorkflow(
         runId,
         status: 'completed',
       });
+
+      // Heartbeat delivery gate: the run finished — now consult the
+      // recorded decision. reply=false or a missing decision (the model
+      // bypassed the forced call — fail closed) produce NO delivery; the
+      // transcript still records the run for the Web UI, but the IM thread
+      // stays untouched. Only reply=true sends the final assistant text.
+      if (heartbeat) {
+        try {
+          const decision = extractHeartbeatDecision(result.steps);
+          const finalText = extractFinalAssistantText(result.messages);
+          if (decision?.reply === true && finalText && source.type === 'im') {
+            const delivered = await deliverHeartbeatReplyStep({
+              source,
+              text: finalText,
+            });
+            await recordHeartbeatOutcomeStep({
+              sessionId,
+              reply: true,
+              chatRunId: runId,
+              failed: !delivered,
+            });
+            logger.info('heartbeat:spoke', {
+              sessionId,
+              runId,
+              delivered,
+            });
+          } else {
+            await recordHeartbeatOutcomeStep({
+              sessionId,
+              reply: false,
+              chatRunId: runId,
+            });
+            logger.info('heartbeat:silent', {
+              sessionId,
+              runId,
+              decided: decision !== null,
+            });
+          }
+        } catch (heartbeatError) {
+          // Best-effort: a delivery/recording failure must not fail the
+          // chat run itself — the assistant reply is already persisted.
+          logger.warn('heartbeat:delivery_failed', {
+            sessionId,
+            runId,
+            error:
+              heartbeatError instanceof Error
+                ? heartbeatError.message
+                : String(heartbeatError),
+          });
+        }
+      }
 
       // Close the UI stream immediately. The client receives `finish` as
       // soon as the run is marked completed — semantically the right
