@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   evaluate,
   normalizeToolName,
@@ -467,6 +467,106 @@ describe('cancelAll / cancelSession scoping', () => {
     await h.waitForRequest();
     h.broker.respond(h.lastRequestId(), 'deny');
     await expect(second).rejects.toMatchObject({ code: 'TOOL_DENIED' });
+  });
+});
+
+describe('review regressions (PR #63)', () => {
+  it('external low-risk reads prompt instead of silently allowing', async () => {
+    const h = createBroker();
+    // 'read' is low-risk; without the external→high risk escalation,
+    // evaluate() would return allow-once before the ask mode is consulted.
+    const pending = h.broker.request({
+      sessionId: 's1',
+      toolName: 'read',
+      argsPreview: '/outside/workspace/file',
+      reason: 'r',
+      pathRoot: 'external',
+    });
+    await h.waitForRequest();
+    expect(h.lastRequest().risk).toBe('high');
+    expect(h.broker.listPending()).toHaveLength(1);
+    h.broker.respond(h.lastRequestId(), 'deny');
+    await expect(pending).rejects.toMatchObject({ code: 'TOOL_DENIED' });
+  });
+
+  it('cancelSession matches pendings by cooldown scope, not just tool name', async () => {
+    const h = createBroker();
+    const pending = h.broker.request({
+      sessionId: 's1',
+      toolName: 'browser_read',
+      argsPreview: 'x',
+      reason: 'r',
+      cooldownScope: 'browser',
+    });
+    await h.waitForRequest();
+    // A matcher targeting the shared cooldown scope must cancel the pending
+    // even though its toolName does not match.
+    h.broker.cancelSession('s1', (name) => name === 'browser');
+    await expect(pending).rejects.toMatchObject({
+      code: 'PERMISSION_UNAVAILABLE',
+    });
+  });
+
+  it('a throwing emitResolved still settles the caller and advances the queue', async () => {
+    const h = createBroker({
+      emitResolved: () => {
+        throw new Error('audit sink down');
+      },
+    });
+    const first = h.broker.request({
+      sessionId: 's1',
+      toolName: 'bash',
+      argsPreview: 'x',
+      reason: 'r',
+    });
+    await h.waitForRequest();
+    const second = h.broker.request({
+      sessionId: 's1',
+      toolName: 'write',
+      argsPreview: 'y',
+      reason: 'r',
+    });
+    h.broker.respond(h.lastRequestId(), 'allow-once');
+    await expect(first).resolves.toBe('allow-once');
+    // The serial queue advanced despite the throwing emitter.
+    await vi.waitFor(() => expect(h.emittedRequests).toHaveLength(2));
+    h.broker.respond(h.lastRequestId(), 'deny');
+    await expect(second).rejects.toMatchObject({ code: 'TOOL_DENIED' });
+  });
+
+  it('a throwing emitRequest fails that request closed and activates the next', async () => {
+    let emitCount = 0;
+    let secondEmitted!: () => void;
+    const secondEmittedPromise = new Promise<void>((resolve) => {
+      secondEmitted = resolve;
+    });
+    const h = createBroker({
+      emitRequest: () => {
+        emitCount += 1;
+        if (emitCount === 1) throw new Error('responder UI crashed');
+        if (emitCount === 2) secondEmitted();
+      },
+    });
+    const first = h.broker.request({
+      sessionId: 's1',
+      toolName: 'bash',
+      argsPreview: 'x',
+      reason: 'r',
+    });
+    // The request never surfaced — nothing can answer it. Fail closed.
+    await expect(first).rejects.toMatchObject({
+      code: 'PERMISSION_UNAVAILABLE',
+    });
+    const second = h.broker.request({
+      sessionId: 's1',
+      toolName: 'write',
+      argsPreview: 'y',
+      reason: 'r',
+    });
+    await secondEmittedPromise;
+    h.broker.respond(h.broker.listPending()[0].id, 'deny');
+    await expect(second).rejects.toMatchObject({ code: 'TOOL_DENIED' });
+    expect(emitCount).toBe(2);
   });
 });
 

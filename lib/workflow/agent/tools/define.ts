@@ -15,7 +15,13 @@ import type {
 } from '../hooks';
 import { getSecurityEngine } from '../security';
 import type { SecurityCheckRequest } from '../security';
-import { resolveToolTimeoutMs, withToolTimeout } from './timeout-guard';
+import {
+  asToolTimeoutResult,
+  resolveToolTimeoutMs,
+  TOOL_TIMEOUT,
+  withToolTimeout,
+} from './timeout-guard';
+import { isSpillExemptTool } from './spill/core';
 import { withToolResultSpill } from './spill/wrap';
 
 type MaybePromise<T> = T | Promise<T>;
@@ -436,8 +442,75 @@ export function withToolExecutionLogger(
         );
       }
 
+      // Shared failure semantics (error log + onError hook + error activity
+      // entry) for both thrown errors and structured timeout results.
+      const recordFailure = async (error: unknown): Promise<void> => {
+        const completedAt = new Date();
+        const elapsedMs = completedAt.getTime() - startedAtMs;
+        logger.error('execute:failed', {
+          ...context,
+          argKeys,
+          toolCallId,
+          elapsedMs,
+          errorName: getErrorName(error),
+          error: getErrorMessage(error),
+          errorCause: getErrorCause(error),
+        });
+
+        // onError hook
+        if (securityContext) {
+          const hookCtx: HookContext = {
+            sessionId: securityContext.sessionId,
+            runId: securityContext.runId,
+            agentName: securityContext.agentName,
+            appConfig: securityContext.appConfig,
+          };
+          await hookRegistry.executeAfter(
+            'onError',
+            {
+              error: error instanceof Error ? error : new Error(String(error)),
+              phase: 'tool',
+              context: {
+                toolId: context.toolId,
+                toolName: context.toolName,
+              },
+            },
+            hookCtx,
+          );
+        }
+
+        await writeWorkflowToolActivityLog({
+          context,
+          toolCallId,
+          toolInput: input,
+          error,
+          startedAt,
+          completedAt,
+          elapsedMs,
+        });
+      };
+
       try {
         const result = await execute(input, options);
+
+        const timeoutResult = asToolTimeoutResult(result);
+        if (timeoutResult) {
+          // The timeout guard resolves with a structured result instead of
+          // throwing; route it through the same failure semantics while
+          // still returning the result to the model. ONLY the timeout
+          // guard's signature counts — ordinary `ok === false` results are
+          // model-facing data, not tool failures.
+          await recordFailure(
+            Object.assign(
+              new Error(
+                `tool call timed out after ${timeoutResult.timeoutMs}ms`,
+              ),
+              { code: TOOL_TIMEOUT },
+            ),
+          );
+          return result;
+        }
+
         const completedAt = new Date();
         const elapsedMs = completedAt.getTime() - startedAtMs;
 
@@ -485,50 +558,7 @@ export function withToolExecutionLogger(
 
         return result;
       } catch (error) {
-        const completedAt = new Date();
-        const elapsedMs = completedAt.getTime() - startedAtMs;
-        logger.error('execute:failed', {
-          ...context,
-          argKeys,
-          toolCallId,
-          elapsedMs,
-          errorName: getErrorName(error),
-          error: getErrorMessage(error),
-          errorCause: getErrorCause(error),
-        });
-
-        // onError hook
-        if (securityContext) {
-          const hookCtx: HookContext = {
-            sessionId: securityContext.sessionId,
-            runId: securityContext.runId,
-            agentName: securityContext.agentName,
-            appConfig: securityContext.appConfig,
-          };
-          await hookRegistry.executeAfter(
-            'onError',
-            {
-              error: error instanceof Error ? error : new Error(String(error)),
-              phase: 'tool',
-              context: {
-                toolId: context.toolId,
-                toolName: context.toolName,
-              },
-            },
-            hookCtx,
-          );
-        }
-
-        await writeWorkflowToolActivityLog({
-          context,
-          toolCallId,
-          toolInput: input,
-          error,
-          startedAt,
-          completedAt,
-          elapsedMs,
-        });
-
+        await recordFailure(error);
         throw error;
       }
     },
@@ -656,13 +686,21 @@ export function defineBuildInTool(config: {
             // Spill sits outside the timeout (dsh spill-policy is a
             // post-execute consumer: it observes the FINAL outcome; a
             // timed-out tool returns a small structured result and passes
-            // through untouched).
+            // through untouched). Spill retrieval itself is exempt
+            // (isSpillExemptTool) so its pages can never re-spill, and
+            // spilled records carry the session id for read-side
+            // ownership checks.
             // Budget: tool entry config `timeoutMs` > env default; absent →
             // no deadline (delegated through unchanged).
+            const guarded = withToolTimeout(tool, {
+              timeoutMs: toolTimeoutMs,
+            });
             allTools[toolName] = withToolExecutionLogger(
-              withToolResultSpill(
-                withToolTimeout(tool, { timeoutMs: toolTimeoutMs }),
-              ),
+              isSpillExemptTool(toolName)
+                ? guarded
+                : withToolResultSpill(guarded, {
+                    sessionId: context.sessionId,
+                  }),
               {
                 provider: 'builtin',
                 toolId: id,

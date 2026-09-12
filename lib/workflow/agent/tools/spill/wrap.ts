@@ -29,18 +29,22 @@ import { putSpill } from './store';
 
 const logger = createLogger('workflow.agent.tools.spill');
 
-export function withToolResultSpill(tool: ToolSet[string]): ToolSet[string] {
+export function withToolResultSpill(
+  tool: ToolSet[string],
+  options?: { sessionId?: string },
+): ToolSet[string] {
   const execute = tool.execute;
   if (!execute) {
     return tool;
   }
+  const sessionId = options?.sessionId;
 
   return {
     ...tool,
     execute: async (input, execOptions) => {
       const result = await execute(input, execOptions);
       try {
-        return await maybeSpill(result, execOptions?.toolCallId);
+        return await maybeSpill(result, execOptions?.toolCallId, sessionId);
       } catch (error) {
         logger.warn('spill:store_failed', {
           toolCallId: execOptions?.toolCallId,
@@ -55,6 +59,7 @@ export function withToolResultSpill(tool: ToolSet[string]): ToolSet[string] {
 async function maybeSpill(
   result: unknown,
   toolCallId: string | undefined,
+  sessionId: string | undefined,
 ): Promise<unknown> {
   const settings = resolveSpillSettings();
   if (settings.disabled || !toolCallId) {
@@ -71,6 +76,9 @@ async function maybeSpill(
     {
       text: serialized.slice(0, settings.maxStoreChars),
       totalChars: serialized.length,
+      // Session binding: deterministic under workflow replay (same session
+      // → same value) and enforced on read by getSpill.
+      ...(sessionId !== undefined ? { sessionId } : {}),
       createdAt: new Date().toISOString(),
     },
     settings.ttlSeconds,

@@ -153,8 +153,22 @@ export function buildSpillReplacement(input: {
 export interface StoredSpill {
   text: string;
   totalChars: number;
+  /** Owning session — spills are session-scoped; reads fail closed when
+   *  the record predates ownership binding or belongs to another session. */
+  sessionId?: string;
   toolName?: string;
   createdAt: string;
+}
+
+/** Tools that must never be spill-wrapped: `fetch_spilled_output` pages are
+ *  bounded by SPILL_FETCH_MAX_LENGTH (20k), but the spill threshold is
+ *  configurable down to 1k — wrapping the retrieval tool would let its own
+ *  pages re-spill into new locators the model can never read (recursive
+ *  spill). Exempting the tool keeps that invariant independent of config. */
+const SPILL_EXEMPT_TOOLS = new Set(['fetch_spilled_output']);
+
+export function isSpillExemptTool(toolName: string): boolean {
+  return SPILL_EXEMPT_TOOLS.has(toolName);
 }
 
 /** Validate + clamp a fetch window. Pure; used by the fetch tool. */

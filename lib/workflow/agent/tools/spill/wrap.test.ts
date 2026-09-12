@@ -112,6 +112,33 @@ describe('withToolResultSpill', () => {
     await expect(tool.execute?.({}, opts('call-err'))).rejects.toThrow('boom');
   });
 
+  it('binds spilled records to the owning session when provided', async () => {
+    const bigText = 'z'.repeat(60_000);
+    const tool = withToolResultSpill(
+      makeTool(async () => ({ ok: true, data: bigText })),
+      { sessionId: 'sess-1' },
+    );
+    await tool.execute?.({}, opts('call-owned'));
+    const [, record] = putSpillMock.mock.calls[0] as [
+      string,
+      { sessionId?: string },
+    ];
+    expect(record.sessionId).toBe('sess-1');
+  });
+
+  it('omits the owner when no session context is available', async () => {
+    const bigText = 'z'.repeat(60_000);
+    const tool = withToolResultSpill(
+      makeTool(async () => ({ ok: true, data: bigText })),
+    );
+    await tool.execute?.({}, opts('call-anon'));
+    const [, record] = putSpillMock.mock.calls[0] as [
+      string,
+      { sessionId?: string },
+    ];
+    expect(record.sessionId).toBeUndefined();
+  });
+
   it('returns tools without execute unchanged', () => {
     const tool = {} as ToolSet[string];
     expect(withToolResultSpill(tool)).toBe(tool);

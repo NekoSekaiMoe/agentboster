@@ -156,3 +156,47 @@ describe('withToolTimeout', () => {
     }
   });
 });
+
+describe('review regressions (PR #63)', () => {
+  it('rejects decimal and unit-suffixed budgets (whole-string validation)', () => {
+    // parseInt would silently read these as 1 and 5000.
+    expect(resolveToolTimeoutMs({ timeoutMs: '1.5' }, {})).toBeUndefined();
+    expect(resolveToolTimeoutMs({ timeoutMs: '5000ms' }, {})).toBeUndefined();
+    expect(resolveToolTimeoutMs({ timeoutMs: '0.5' }, {})).toBeUndefined();
+  });
+
+  it('reports upstream abort immediately when the tool ignores the signal', async () => {
+    // Tool ignores the derived signal and never settles. The budget is
+    // deliberately long: a TOOL_TIMEOUT outcome here would prove we waited
+    // for the local timer and mislabeled the upstream cancellation.
+    const tool = withToolTimeout(
+      makeTool(() => new Promise(() => undefined)),
+      { timeoutMs: 60_000 },
+    );
+    const upstream = new AbortController();
+    const pending = tool.execute?.({}, opts(upstream.signal));
+    upstream.abort();
+    await expect(pending).rejects.toThrow('Tool execution aborted upstream');
+  });
+
+  it('rejects immediately when the upstream signal is already aborted', async () => {
+    const tool = withToolTimeout(
+      makeTool(() => new Promise(() => undefined)),
+      { timeoutMs: 60_000 },
+    );
+    const upstream = new AbortController();
+    upstream.abort();
+    await expect(tool.execute?.({}, opts(upstream.signal))).rejects.toThrow(
+      'Tool execution aborted upstream',
+    );
+  });
+
+  it('passes through a tool that legitimately resolves `true`', async () => {
+    // A bare `true` used to collide with the timeout sentinel.
+    const tool = withToolTimeout(
+      makeTool(async () => true as never),
+      { timeoutMs: 10_000 },
+    );
+    await expect(tool.execute?.({}, opts())).resolves.toBe(true);
+  });
+});

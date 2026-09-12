@@ -3,12 +3,12 @@
  *
  * Registers under built-in tool id `spill` (enabled by default, no required
  * config) so the locator in every spill note always resolves. Output is
- * bounded by SPILL_FETCH_MAX_LENGTH so the tool can never trigger another
- * spill.
+ * bounded by SPILL_FETCH_MAX_LENGTH, and the tool is exempt from spill
+ * wrapping itself (isSpillExemptTool) — pages can never re-spill.
  */
 import { tool } from 'ai';
 import { z } from 'zod';
-import { defineBuildInTool } from '../define';
+import { defineBuildInTool, type BuildInToolFactoryContext } from '../define';
 import { DEFAULT_SPILL_PREVIEW_CHARS, clampFetchWindow } from './core';
 import { getSpill } from './store';
 
@@ -19,7 +19,12 @@ export default defineBuildInTool({
     'When a tool result is too large for the conversation context, it is ' +
     'replaced by a preview plus a spill id — this tool retrieves the full ' +
     'text in bounded pages.',
-  factory: async () => {
+  factory: async (
+    _config: Record<string, string>,
+    context: BuildInToolFactoryContext,
+  ) => {
+    // Ownership: every read is scoped to the registering session.
+    const sessionId = context.sessionId;
     return {
       fetch_spilled_output: tool({
         title: 'Fetch spilled tool output',
@@ -49,7 +54,7 @@ export default defineBuildInTool({
         }),
         execute: async (input) => {
           // Dynamic import: KV helpers must not be static workflow-bundle deps.
-          const record = await getSpill(input.spillId);
+          const record = await getSpill(input.spillId, sessionId);
           if (!record) {
             return {
               ok: false,
@@ -59,11 +64,15 @@ export default defineBuildInTool({
             };
           }
 
-          const totalChars = record.text.length;
+          // Paging is bounded by what was ACTUALLY stored — the store may
+          // hold only a prefix of the original output (maxStoreChars).
+          // totalChars keeps reporting the original length so truncation is
+          // visible instead of silently redefined.
+          const storedChars = record.text.length;
           const { offset, length } = clampFetchWindow({
             offset: input.offset,
             length: input.length,
-            totalChars,
+            totalChars: storedChars,
           });
           const text = record.text.slice(offset, offset + length);
           return {
@@ -71,8 +80,10 @@ export default defineBuildInTool({
             spillId: input.spillId,
             offset,
             length: text.length,
-            totalChars,
-            hasMore: offset + text.length < totalChars,
+            totalChars: record.totalChars,
+            storedChars,
+            truncatedInStore: record.totalChars > storedChars,
+            hasMore: offset + text.length < storedChars,
             text,
           };
         },

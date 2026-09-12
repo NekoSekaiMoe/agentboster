@@ -239,14 +239,18 @@ export class PermissionBroker {
       ? input.mode
       : 'ask';
     // External paths escalate: only an explicit grant or "auto" mode may
-    // skip the prompt.
+    // skip the prompt. The risk must escalate too — evaluate() short
+    // -circuits `risk === 'low'` BEFORE consulting the mode, so an external
+    // read (low-risk tool) would otherwise be allowed silently.
+    const external = input.pathRoot === 'external';
     const effectiveMode: PermissionMode =
-      input.pathRoot === 'external' && mode !== 'auto' ? 'ask' : mode;
+      external && mode !== 'auto' ? 'ask' : mode;
+    const effectiveRisk: PermissionRisk = external ? 'high' : risk;
 
     const persistent = this.options.getPersistentGrant(sessionId, toolName);
     const decision = evaluate(
       toolName,
-      risk,
+      effectiveRisk,
       this.options.getSessionGrants(sessionId),
       persistent,
       effectiveMode,
@@ -302,7 +306,7 @@ export class PermissionBroker {
       id: this.createId(),
       sessionId,
       toolName,
-      risk,
+      risk: effectiveRisk,
       argsPreview: input.argsPreview.slice(0, ARGS_PREVIEW_MAX_CHARS),
       reason: input.reason,
       createdAt,
@@ -415,7 +419,12 @@ export class PermissionBroker {
   ): void {
     for (const pending of [...this.pendingById.values()]) {
       if (pending.request.sessionId !== sessionId) continue;
-      if (matchTool && !matchTool(pending.request.toolName)) continue;
+      if (
+        matchTool &&
+        !matchTool(pending.request.toolName) &&
+        !matchTool(pending.cooldownScope)
+      )
+        continue;
       this.finish(
         pending,
         'cancelled',
@@ -435,7 +444,12 @@ export class PermissionBroker {
 
   cancelAll(matchTool?: (toolName: string) => boolean): void {
     for (const pending of [...this.pendingById.values()]) {
-      if (matchTool && !matchTool(pending.request.toolName)) continue;
+      if (
+        matchTool &&
+        !matchTool(pending.request.toolName) &&
+        !matchTool(pending.cooldownScope)
+      )
+        continue;
       this.finish(
         pending,
         'cancelled',
@@ -483,7 +497,13 @@ export class PermissionBroker {
       timestamp: new Date().toISOString(),
       ...(error instanceof PermissionError ? { errorCode: error.code } : {}),
     };
-    this.options.emitResolved(pending.request.id, outcome, audit);
+    try {
+      this.options.emitResolved(pending.request.id, outcome, audit);
+    } catch {
+      // Listener isolation: a throwing emitter must not strand the caller
+      // (unsettled promise) or stall the serial queue. State cleanup,
+      // settlement, and queue advance proceed regardless.
+    }
     if (error) pending.reject(error);
     else pending.resolve(decision ?? 'allow-once');
     if (!this.active) {
@@ -494,7 +514,21 @@ export class PermissionBroker {
 
   private activate(pending: Pending): void {
     this.active = pending;
-    this.options.emitRequest(structuredClone(pending.request));
+    try {
+      this.options.emitRequest(structuredClone(pending.request));
+    } catch {
+      // Fail closed: if the request never surfaced, nothing can answer
+      // it. Settle with PERMISSION_UNAVAILABLE; finish() clears state and
+      // advances the queue (listener isolation applies to emitRequest).
+      this.finish(
+        pending,
+        'denied',
+        new PermissionError(
+          'PERMISSION_UNAVAILABLE',
+          'The permission request could not be surfaced',
+        ),
+      );
+    }
   }
 }
 
