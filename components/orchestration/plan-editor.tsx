@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { AgentOrchestrationPlanItem } from '@/lib/core/db/schema';
+import { validatePlanDag } from '@/lib/core/db/plan-dag';
 
 type PlanListEntry = Awaited<ReturnType<typeof listPlansAction>>[number];
 interface PlanWithItems extends PlanListEntry {
@@ -141,11 +142,30 @@ function PlanDetail({
   onSubmit: () => void;
 }) {
   const items = plan.items ?? [];
+  // Live DAG feedback (same pure validator the submit gate uses): cycles,
+  // self-deps, and unknown deps are visible here instead of silently
+  // flattened by computeWaves() at execution time.
+  const dagIssues = validatePlanDag(items);
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-auto">
       <div className="text-muted-foreground text-xs">
         {plan.title} · {items.length} 个任务
       </div>
+
+      {dagIssues.length > 0 && (
+        <div
+          className="rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-800 text-xs leading-5 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300"
+          role="alert"
+        >
+          {dagIssues.map((issue) => (
+            <div
+              key={`${issue.code}:${issue.itemId ?? ''}:${issue.dependsOnItemId ?? ''}`}
+            >
+              · {issue.message}
+            </div>
+          ))}
+        </div>
+      )}
 
       {items.map((item) => (
         <ItemRow
@@ -163,7 +183,11 @@ function PlanDetail({
       </Button>
 
       <div className="mt-auto flex justify-end">
-        <Button size="sm" onClick={onSubmit} disabled={items.length === 0}>
+        <Button
+          size="sm"
+          onClick={onSubmit}
+          disabled={items.length === 0 || dagIssues.length > 0}
+        >
           <Send className="mr-1 size-4" />
           生成执行指令
         </Button>
