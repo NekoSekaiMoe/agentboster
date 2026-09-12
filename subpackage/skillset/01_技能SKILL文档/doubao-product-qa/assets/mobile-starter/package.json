@@ -13,7 +13,7 @@
     "smoke:miniprogram": "node miniprogram-smoke.cjs"
   },
   "devDependencies": {
-    "appium": "^3.0.0",
+    "appium": "^3.7.0",
     "miniprogram-automator": "^0.12.1",
     "webdriverio": "^9.0.0"
   }
