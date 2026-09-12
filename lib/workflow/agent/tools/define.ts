@@ -75,6 +75,11 @@ export type BuildAgentToolsOptions = {
   // ask_question, sub-agent, schedule, task_summary, skills) stay
   // available so the model can investigate before proposing.
   planMode?: boolean;
+  // Scheduled heartbeat wake-up (proactive-speak decision): the agent loop
+  // forces toolChoice to heartbeat_decision at step 0 and gates output
+  // delivery on the recorded decision. Also flags tool factory contexts
+  // (heartbeat_decision only acknowledges inside heartbeat runs).
+  heartbeat?: boolean;
   // Whether the per-workspace run lock was acquired for this run.
   // agentd-scoped execute tools (browser/desktop/sandbox) consult this to
   // decide whether to bind the long-lived workspace container: when false
@@ -92,6 +97,10 @@ export type BuildInToolFactoryContext = {
   runId: string;
   appConfig: AppConfig;
   agentName: string;
+  // True when this run is a scheduled heartbeat wake-up (proactive-speak
+  // decision). Tools key behavior off it — e.g. heartbeat_decision only
+  // acknowledges inside heartbeat runs.
+  heartbeat?: boolean;
   // Mirrors BuildAgentToolsOptions.allowDelegation.
   allowDelegation: boolean;
   // Mirrors BuildAgentToolsOptions.userId.

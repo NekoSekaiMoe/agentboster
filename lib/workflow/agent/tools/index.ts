@@ -29,6 +29,7 @@ import askQuestionTool from './questions/ask-question';
 import localSkillTool from './skills/local';
 import aggregateTool from './tasks/aggregate';
 import barrierTool from './tasks/barrier';
+import heartbeatDecisionTool from './heartbeat/decision';
 import handoffTool from './tasks/handoff';
 import recordPlanTool from './tasks/record-plan';
 import scheduleTool from './tasks/schedule';
@@ -57,6 +58,7 @@ const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   recordPlanTool,
   aggregateTool,
   spillFetchTool,
+  heartbeatDecisionTool,
 ];
 
 export function getBuildInToolCatalog(config: AppConfig): ToolCatalogResponse {
@@ -77,6 +79,8 @@ export async function buildAgentTools(
   const writable = options.writable;
   const userId = options.userId;
   const source = options.source;
+  // Scheduled heartbeat wake-up (proactive-speak decision run).
+  const heartbeat = options.heartbeat === true;
   // Fail-closed: when the caller doesn't plumb lock state we must NOT
   // claim the workspace lock is held — omitting workspace_id (ephemeral
   // container) is the safe default.
@@ -90,6 +94,7 @@ export async function buildAgentTools(
       userId,
       source,
       workspaceLockAcquired,
+      heartbeat,
       ...nestedOptions,
     });
 
@@ -104,6 +109,7 @@ export async function buildAgentTools(
       userId,
       source,
       workspaceLockAcquired,
+      heartbeat,
       buildNestedTools,
     });
 
