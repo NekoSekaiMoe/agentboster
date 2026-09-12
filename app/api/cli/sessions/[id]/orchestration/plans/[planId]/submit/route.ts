@@ -6,6 +6,7 @@ import {
   markPlanSubmitted,
   synthesizePlanInstruction,
 } from '@/lib/core/db/agent-orchestration-plans';
+import { assertPlanDagValid } from '@/lib/core/db/plan-dag';
 
 /**
  * POST /api/cli/sessions/:id/orchestration/plans/:planId/submit
@@ -66,6 +67,18 @@ export const POST = withCliAuth(async (request, ctx) => {
   if (plan.items.length === 0) {
     return Response.json(
       { ok: false, error: 'Cannot submit an empty plan.' },
+      { status: 400 },
+    );
+  }
+  // Same DAG gate as the web submitPlanAction (mirror contract).
+  try {
+    assertPlanDagValid(plan.items);
+  } catch (error) {
+    return Response.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      },
       { status: 400 },
     );
   }

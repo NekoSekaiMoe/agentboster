@@ -35,6 +35,7 @@ import scheduleTool from './tasks/schedule';
 import subAgentTool from './tasks/sub-agent';
 import taskSummaryTool from './tasks/summary';
 import sequentialThinkingTool from './reasoning/sequential-thinking';
+import spillFetchTool from './spill/fetch';
 
 const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   sandboxTool,
@@ -55,6 +56,7 @@ const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   handoffTool,
   recordPlanTool,
   aggregateTool,
+  spillFetchTool,
 ];
 
 export function getBuildInToolCatalog(config: AppConfig): ToolCatalogResponse {

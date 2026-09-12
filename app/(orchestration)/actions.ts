@@ -16,6 +16,7 @@ import {
   updatePlan,
   updatePlanItem,
 } from '@/lib/core/db/agent-orchestration-plans';
+import { assertPlanDagValid } from '@/lib/core/db/plan-dag';
 import { cookies } from 'next/headers';
 
 /**
@@ -120,6 +121,9 @@ export async function submitPlanAction(planId: string) {
   if (plan.items.length === 0) {
     throw new Error('Cannot submit an empty plan');
   }
+  // DAG gate (lib/core/db/plan-dag.ts): cycles, self-deps, and unknown deps
+  // must fail loudly at submit — computeWaves() silently flattens them.
+  assertPlanDagValid(plan.items);
   const instruction = synthesizePlanInstruction(plan);
   // Mark submitted but leave submittedMessageId null — the chat UI fills it
   // in once it has actually sent the message. For now this status is enough

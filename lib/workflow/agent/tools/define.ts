@@ -15,6 +15,8 @@ import type {
 } from '../hooks';
 import { getSecurityEngine } from '../security';
 import type { SecurityCheckRequest } from '../security';
+import { resolveToolTimeoutMs, withToolTimeout } from './timeout-guard';
+import { withToolResultSpill } from './spill/wrap';
 
 type MaybePromise<T> = T | Promise<T>;
 type FactoryResult = Record<string, Tool | null> | null;
@@ -644,12 +646,23 @@ export function defineBuildInTool(config: {
         appConfig,
       };
 
+      const toolTimeoutMs = resolveToolTimeoutMs(mergedConfig);
       const tools = Object.entries(created).reduce<ToolSet>(
         (allTools, entry) => {
           const [toolName, tool] = entry;
           if (tool) {
+            // Timeout guard sits INSIDE the execution logger so the
+            // activity log records the timeout result as the tool outcome.
+            // Spill sits outside the timeout (dsh spill-policy is a
+            // post-execute consumer: it observes the FINAL outcome; a
+            // timed-out tool returns a small structured result and passes
+            // through untouched).
+            // Budget: tool entry config `timeoutMs` > env default; absent →
+            // no deadline (delegated through unchanged).
             allTools[toolName] = withToolExecutionLogger(
-              tool,
+              withToolResultSpill(
+                withToolTimeout(tool, { timeoutMs: toolTimeoutMs }),
+              ),
               {
                 provider: 'builtin',
                 toolId: id,
