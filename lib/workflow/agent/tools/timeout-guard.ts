@@ -50,6 +50,21 @@ export interface ToolTimeoutResult {
   timeoutMs: number;
 }
 
+/** Type guard for the structured timeout result — the execution logger uses
+ * it to route timeouts through failure semantics without throwing. */
+export function asToolTimeoutResult(value: unknown): ToolTimeoutResult | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = value as Partial<ToolTimeoutResult>;
+  if (
+    candidate.ok === false &&
+    candidate.code === TOOL_TIMEOUT &&
+    candidate.timedOut === true
+  ) {
+    return value as ToolTimeoutResult;
+  }
+  return null;
+}
+
 function toolTimeoutResult(timeoutMs: number): ToolTimeoutResult {
   const message = `tool call timed out after ${timeoutMs}ms`;
   return {
@@ -75,19 +90,32 @@ export function resolveToolTimeoutMs(
   const raw =
     config?.timeoutMs?.trim() || env.AGENT_TOOL_DEFAULT_TIMEOUT_MS?.trim();
   if (!raw) return undefined;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  // Validate the WHOLE string before converting. parseInt would silently
+  // accept "1.5" as 1 or "5000ms" as 5000 — a malformed budget must mean
+  // "no budget", not a surprise 1ms deadline.
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     logger.warn('timeout_guard:invalid_timeout_ms', { raw });
     return undefined;
   }
   return parsed;
 }
 
+/** Unique sentinel the race resolves with when OUR timer fires. A bare
+ * `true` would collide with a tool that legitimately resolves `true`. */
+const TIMEOUT_SENTINEL = Symbol('tool-timeout');
+
+/** Unique sentinel the race rejects with when the UPSTREAM signal aborts. */
+const UPSTREAM_ABORTED = Symbol('upstream-aborted');
+
 interface Deadline {
   /** Derived signal: aborts on upstream abort OR our own timer. */
   signal: AbortSignal;
-  /** Resolves with `true` ONLY when this guard's own timer fires. */
-  timedOut: Promise<true>;
+  /** Resolves with the sentinel ONLY when this guard's own timer fires. */
+  timedOut: Promise<typeof TIMEOUT_SENTINEL>;
+  /** Rejects with the sentinel as soon as the upstream signal aborts.
+   *  Never settles when there is no upstream signal or after dispose(). */
+  upstreamAborted: Promise<typeof UPSTREAM_ABORTED>;
   /** Synchronous flag — true once our own timer fired. Covers the case
    *  where a cooperative tool settles (post-abort) in the same microtask
    *  tick as the timer callback and wins the race: dsh semantics say the
@@ -101,13 +129,20 @@ function armDeadline(
   upstream: AbortSignal | undefined,
 ): Deadline {
   const controller = new AbortController();
-  let resolveTimedOut!: (v: true) => void;
-  const timedOut = new Promise<true>((resolve) => {
+  let resolveTimedOut!: (v: typeof TIMEOUT_SENTINEL) => void;
+  const timedOut = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
     resolveTimedOut = resolve;
   });
+  let rejectUpstream!: (v: typeof UPSTREAM_ABORTED) => void;
+  const upstreamAborted = new Promise<typeof UPSTREAM_ABORTED>(
+    (_resolve, reject) => {
+      rejectUpstream = reject;
+    },
+  );
   const deadline: Deadline = {
     signal: controller.signal,
     timedOut,
+    upstreamAborted,
     fired: false,
     dispose: () => undefined,
   };
@@ -117,11 +152,14 @@ function armDeadline(
     // `timedOut`.
     deadline.fired = true;
     controller.abort();
-    resolveTimedOut(true);
+    resolveTimedOut(TIMEOUT_SENTINEL);
   }, timeoutMs);
-  const onUpstreamAbort = () => controller.abort();
+  const onUpstreamAbort = () => {
+    controller.abort();
+    rejectUpstream(UPSTREAM_ABORTED);
+  };
   if (upstream) {
-    if (upstream.aborted) controller.abort();
+    if (upstream.aborted) onUpstreamAbort();
     else upstream.addEventListener('abort', onUpstreamAbort);
   }
   deadline.dispose = () => {
@@ -158,8 +196,18 @@ export function withToolTimeout(
             }),
           ),
           deadline.timedOut,
-        ]);
-        if (result === true || deadline.fired) {
+          deadline.upstreamAborted,
+        ]).catch((error: unknown) => {
+          if (error === UPSTREAM_ABORTED) {
+            // Upstream cancellation is authoritative even when the tool
+            // ignores the derived signal — surface it as the tool's own
+            // rejection immediately instead of waiting for (and
+            // misreporting) the local deadline.
+            throw new Error('Tool execution aborted upstream');
+          }
+          throw error;
+        });
+        if (result === TIMEOUT_SENTINEL || deadline.fired) {
           // Our timer fired — either the sentinel won the race, or a
           // cooperative tool settled post-abort in the same tick and the
           // race picked its value. Either way the budget elapsed: replace

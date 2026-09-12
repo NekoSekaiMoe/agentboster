@@ -20,7 +20,10 @@ export async function putSpill(
   await kv.set(spillKey(spillId), record, { ex: ttlSeconds });
 }
 
-export async function getSpill(spillId: string): Promise<StoredSpill | null> {
+export async function getSpill(
+  spillId: string,
+  expectedSessionId?: string,
+): Promise<StoredSpill | null> {
   'use step';
 
   const kv = await import('@/lib/core/kv');
@@ -28,5 +31,16 @@ export async function getSpill(spillId: string): Promise<StoredSpill | null> {
   if (!value || typeof value !== 'object') return null;
   const record = value as StoredSpill;
   if (typeof record.text !== 'string') return null;
+  // Ownership: spill ids surface in model-visible notes, so a
+  // prompt-injected or cross-session caller must not be able to read
+  // another session's output. Fail closed on a missing owner (records
+  // predating ownership binding) and return the same "not found" shape so
+  // the existence of a foreign spill is never confirmed.
+  if (
+    expectedSessionId !== undefined &&
+    record.sessionId !== expectedSessionId
+  ) {
+    return null;
+  }
   return record;
 }

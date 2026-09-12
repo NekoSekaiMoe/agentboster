@@ -169,6 +169,10 @@ export async function buildAgentTools(
       // Task summary read (already read-only) helps the model see what
       // it has already committed to in earlier runs.
       'task_summary',
+      // Spill retrieval is read-only paging over already-stored output;
+      // without it, plan mode would surface oversized previews with no way
+      // to read the rest.
+      'fetch_spilled_output',
     ]);
     // MCP tools are external research aids (web_search, fetch_url, ...).
     // They were merged into mergedTools above; tag them as allowed unless
