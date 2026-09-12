@@ -130,6 +130,17 @@ export async function PUT(
     intervalMinutes,
   });
 
+  // Arm the wake loop on enable. Fire-and-forget: starting is best-effort
+  // (a failed start leaves the row armed; the next PUT re-tries, and a
+  // lazy sweeper can backstop later). Disabling needs no action — the
+  // loop exits at its next read.
+  if (heartbeat.enabled) {
+    const { ensureHeartbeatWorkflow } = await import(
+      '@/lib/workflow/scheduled/heartbeat-dispatch'
+    );
+    await ensureHeartbeatWorkflow(sessionId);
+  }
+
   return NextResponse.json({
     sessionId,
     enabled: heartbeat.enabled,

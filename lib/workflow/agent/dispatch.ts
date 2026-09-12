@@ -287,6 +287,11 @@ export async function startWorkflow(input: {
    * chatWorkflow's param docs.
    */
   requestAgent?: string | null;
+  /**
+   * Scheduled heartbeat wake-up (proactive-speak decision). Forwarded as
+   * the last positional arg to `chatWorkflow`; see its param docs.
+   */
+  heartbeat?: boolean;
 }): Promise<{
   runId: string;
 }> {
@@ -309,6 +314,7 @@ export async function startWorkflow(input: {
       input.thinkingLevel,
       input.clientSpoof,
       input.requestAgent,
+      input.heartbeat,
     ]),
     new Promise<never>((_, reject) =>
       setTimeout(

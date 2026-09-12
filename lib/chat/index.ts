@@ -139,6 +139,13 @@ type LegacyChatMainRequest = {
    */
   requestAgent?: string;
   /**
+   * Scheduled heartbeat wake-up (proactive-speak decision). Forwarded to
+   * chatWorkflow, which forces the first model call to heartbeat_decision
+   * and gates IM delivery on the recorded reply. Only set by the session
+   * heartbeat dispatcher.
+   */
+  heartbeat?: boolean;
+  /**
    * Merged AGENTS.md content forwarded by the CLI host. Persisted onto
    * `session.metadata.agentsMd` on first arrival so subsequent regenerations
    * re-read it from the DB rather than asking the CLI to resend. Only set by
@@ -2097,6 +2104,8 @@ export async function chatMain(
     // to read-only / observe / reason tools in plan mode. Other sources
     // never set this and run in normal execution mode.
     planMode: request.planMode,
+    // Heartbeat wake-up flag (proactive-speak decision) — see chatWorkflow.
+    heartbeat: request.heartbeat,
     // Forward the CLI /effort thinking level so resolveAgentProviderOptions
     // can serialize it into the provider-specific reasoning field.
     thinkingLevel: request.thinkingLevel,

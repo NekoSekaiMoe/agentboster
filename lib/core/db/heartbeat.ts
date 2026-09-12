@@ -195,3 +195,12 @@ export async function setHeartbeatWorkflowRunId(
     .set({ heartbeatWorkflowRunId: workflowRunId, updatedAt: new Date() })
     .where(eq(schema.sessionHeartbeats.sessionId, sessionId));
 }
+
+/** Disable a heartbeat (auto-disable on repeated dispatch failures). */
+export async function disableSessionHeartbeat(sessionId: string) {
+  await db
+    .update(schema.sessionHeartbeats)
+    .set({ enabled: false, nextRunAt: null, updatedAt: new Date() })
+    .where(eq(schema.sessionHeartbeats.sessionId, sessionId));
+  logger.info('disabled', { sessionId });
+}

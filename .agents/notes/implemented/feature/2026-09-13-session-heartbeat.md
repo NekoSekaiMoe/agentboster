@@ -1,6 +1,6 @@
 # Session Heartbeat(主动发言决策)— arkloop LLM Heartbeat 移植
 
-- Status: proposed(切片 A/B 已落地;C/D 已设计未实现)
+- Status: implemented(切片 A/B/C/D 全部落地;验证清单见文末)
 - Date: 2026-09-13
 - Source: ref/arkloop(`mw_llm_heartbeat.go`、`tools/builtin/heartbeat_decision`、`llm_heartbeat_scheduler.go`)
 - 只借设计,不搬代码(Arkloop License 非 OSI;本仓库 MIT)
@@ -41,68 +41,38 @@ Heartbeat 给了一个反骚扰的主动发言模型:按会话间隔唤醒 agent
 4. **设置面**:`GET/PUT /api/sessions/[id]/heartbeat`(session 所有权校验同
    orchestration 路由;非 IM 会话 409 —— 主动发言需要一个"说话的线程")。
 
-## 未落地(切片 C/D)— 已验证的机制
+## 已落地(切片 C/D)
 
-### C1. 触发链穿线(位置参数链)
+- **触发链穿线**:`LegacyChatMainRequest.heartbeat` → `startWorkflow` 位置参数第 12 位
+  → `chatWorkflow(heartbeat)` → `buildAgentTools({ heartbeat })`。合成指令作为
+  `initialMessages` 的最后一条 user 消息由 dispatcher 注入(**不持久化**,arkloop 的
+  uuid.Nil 同义);`writeUserMessageMarker` 只写 UI status chunk,不落库,已核实。
+- **强制决策**:`prepareStep` 在 `stepNumber === 0 && heartbeat` 时返回
+  `toolChoice: { type: 'tool', toolName: 'heartbeat_decision' }`,后续 step 不约束。
+- **投递门控**:stream 完成后扫 `result.steps` 取 decision input(单一事实源),
+  `reply=false` / 无 decision(fail-closed)/ 非 IM source → 静默;`reply=true` 且
+  `extractFinalAssistantText` 非空 → `sendAdapterSourceReply`(TTS 适配复用)。
+- **唤醒循环**:`sessionHeartbeatWorkflow`(每会话 sleep(nextRunAt) 循环,醒来重读
+  配置,未到点则继续睡)→ POST `/api/bot/{authSecret}/heartbeat` →
+  `deliverSessionHeartbeat`(CAS 认领 + `startWorkflow`)。PUT 启用时
+  `ensureHeartbeatWorkflow` 起循环;连续失败 3 次自动 `disableSessionHeartbeat`。
 
-`chatMain` → `startWorkflow` → `start(chatWorkflow, [initialMessages, source, config,
-sessionId, user, requestModel, agentsMd, planMode, thinkingLevel, clientSpoof,
-requestAgent])` 是**位置参数**(`lib/workflow/agent/dispatch.ts:310`)。heartbeat 标志
-追加在数组末尾(第 12 位),与 planMode 的穿线路径完全同构:
-`lib/chat/index.ts`(LegacyChatMainRequest.heartbeat)→ dispatch(StartWorkflowInput.heartbeat)
-→ chatWorkflow 签名 → `buildAgentTools(..., { heartbeat })` + prepareStep 读取。
+### 踩坑记录(已验证,勿重蹈)
 
-### C2. 合成指令(不污染 transcript)
+- **含 `'use workflow'` 的模块,动态导入链也会被 DevKit 检查器走查**:`deliverSessionHeartbeat`
+  里 `await import('@/lib/core/db/users')` → `auth/password` → bcryptjs,yarn build 直接
+  硬失败(报错位置误导性地指向 password.ts 的首个使用点)。解法沿用 scheduled/
+  的 index(workflow)/dispatch(host)分文件模式:`heartbeat.ts` 只留 workflow+
+  'use step'(其动态依赖 db/heartbeat、bot/webhook 均为干净链),
+  `heartbeat-dispatch.ts` 放 host 侧(dispatch/ensure,自由引用 db/users 等重依赖)。
+  这比 AGENTS.md 现有规则更严:**不只是顶层 `node:*`,任何会被拉进 workflow bundle 的
+  重依赖(哪怕 `await import`)都不能出现在含 workflow 声明的模块里。**
 
-arkloop 给 `rc.Messages` 追加合成 user 消息、`ThreadMessageIDs` 记 `uuid.Nil`(仅模型
-可见,不落库)。agentboster 对应机制已存在:**prepareStep 的 instructionQueue**
-(`lib/workflow/agent/index.ts:655` 起)就是在每次模型调用前把排队指令映射进 messages。
-heartbeat run 在 step 0 注入一条合成 user 指令(内容:这是第 N 次心跳、上次决策、距上次
-用户消息多久、先调 heartbeat_decision 再决定),**不持久化** —— 每 30 分钟在 transcript
-里堆 "[heartbeat]" 用户消息是不可接受的。
-
-需要验证:initialMessages 为空数组时 chatWorkflow 是否正常(heartbeat 不带新用户消息,
-建议 dispatcher 直接走 startWorkflow 而非 chatMain 的 envelope 解析,绕开空输入分支)。
-
-### C3. 强制决策(toolChoice)
-
-`@workflow/ai` 的 `DurableAgent`/`prepareStep` **原生支持 toolChoice**
-(`PrepareStepResult.toolChoice`,`node_modules/@workflow/ai/dist/agent/durable-agent.d.ts:226`)。
-在 prepareStep 里:
-
-- `stepNumber === 0 && heartbeat` → 返回 `{ toolChoice: { type: 'tool', toolName:
-  'heartbeat_decision' } }`(首步强制决策);
-- 后续 step 不返回 toolChoice(auto)——`reply=true` 后模型仍可用只读工具收集上下文
-  再组织发言。
-
-### C4. 静默与投递(fail-closed)
-
-- 扫描 stepResult 中的 heartbeat_decision tool-call input:
-  - `reply=false` → 立即终止 run(stopCondition),全部输出丢弃;
-  - `reply=true` → run 正常完成,最终文本投递到会话自己的 IM 线程;
-  - **未观察到决策**(模型绕过强制,理论不可能)→ 按 reply=false 处理(fail-closed),
-    记 warn 日志。
-- 投递路径:IM 会话的出站走 `sendNotification`(`lib/extra/channels/send-notification.ts`),
-  以 session 的 `channel`(adapter)+ `externalThreadId` 定位线程(targetChatId=
-  threadId 的用法见同文件 :174/:202)。未验证点:scheduled 触发的 run 是否已有
-  自动回投线程的路径(im-stream consumer),若有则复用之。
-
-### D. 唤醒调度(两个互补机制)
-
-- **主:每会话睡眠循环 workflow**(`sessionHeartbeatWorkflow(sessionId)`,
-  `'use workflow'` + while-loop sleep(nextRunAt)),与 `scheduledTaskWorkflow` 的
-  daily 循环同构(`lib/workflow/scheduled/index.ts`);workflowRunId 存
-  `heartbeat_workflow_run_id`。启用时 start,禁用/改间隔时重启循环。
-- **辅:lazy sweeper**(保险带):沿用 curator/reapStaleNodes 的 piggyback 惯用法
-  (serverless 无常驻调度),在心跳相关的读写路径上偶发调用
-  `listDueSessionHeartbeats()` 补发漏唤醒(host 重启导致睡眠循环丢失的场景)。
-- 内部触发端点仿 `/api/bot/[authSecret]/schedule` 模式加 `/heartbeat`。
-
-## 防坑
+## 防坑(历史)
 
 - **advance-on-dispatch,不是 on-completion**:慢/失败的 run 不得重放自己的槽位。
 - **replay 安全**:chatWorkflow 是 durable workflow,step 重放时 heartbeat 注入指令必须
-  幂等(instructionQueue 的 splice 模式天然幂等,复用即可)。
+  幂等(指令作为 workflow 输入的一部分,天然可重放)。
 - 表结构变更走 drizzle push 部署路径;schema 加列后自托管入口(self-host-migrate)自动
   覆盖,无需额外迁移脚本(无表改名,不触发 push 改名陷阱)。
 

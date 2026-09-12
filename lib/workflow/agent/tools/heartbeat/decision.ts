@@ -1,7 +1,7 @@
 /**
  * heartbeat_decision — proactive-speak gate for heartbeat runs.
  *
- * Note: 设计与切片状态见 .agents/notes/proposed/feature/2026-09-13-session-heartbeat.md
+ * Note: 设计与切片状态见 .agents/notes/implemented/feature/2026-09-13-session-heartbeat.md
  *
  * Ported pattern: arkloop's LLM Heartbeat (ref/arkloop
  * src/services/worker/internal/tools/builtin/heartbeat_decision +
