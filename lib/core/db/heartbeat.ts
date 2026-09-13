@@ -1,6 +1,6 @@
 import { db, schema } from '@/lib/core/db';
 import { createLogger } from '@/lib/utils/logger';
-import { and, eq, isNotNull, lte } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, lte } from 'drizzle-orm';
 
 const logger = createLogger('db.heartbeat');
 
@@ -8,6 +8,12 @@ const logger = createLogger('db.heartbeat');
 export const HEARTBEAT_MIN_INTERVAL_MINUTES = 5;
 export const HEARTBEAT_MAX_INTERVAL_MINUTES = 1440;
 export const HEARTBEAT_DEFAULT_INTERVAL_MINUTES = 30;
+
+/** Auto-disable after this many consecutive failures. Lives here (not in
+ *  the dispatch module) so every failure-recording path — dispatch-side
+ *  markFailed, the run-side delivery gate, and the wake-loop trigger
+ *  failures — shares one disable check. */
+export const MAX_HEARTBEAT_FAILURES = 3;
 
 export function clampHeartbeatIntervalMinutes(
   raw: number | undefined | null,
@@ -158,7 +164,12 @@ export async function listDueSessionHeartbeats(now = new Date()) {
     );
 }
 
-/** Record the outcome of a dispatched heartbeat run. */
+/**
+ * Record the outcome of a dispatched heartbeat run. A failed outcome is
+ * auto-disable-checked HERE (single source of truth): when failureCount
+ * reaches MAX_HEARTBEAT_FAILURES the heartbeat is disabled. The returned
+ * row reflects the increment (pre-disable values for enabled/nextRunAt).
+ */
 export async function recordHeartbeatResult(input: {
   sessionId: string;
   reply: boolean;
@@ -167,7 +178,7 @@ export async function recordHeartbeatResult(input: {
 }) {
   const { sql } = await import('drizzle-orm');
   const now = new Date();
-  const [row] = await db
+  const [updatedRow] = await db
     .update(schema.sessionHeartbeats)
     .set({
       lastDecisionAt: now,
@@ -182,18 +193,46 @@ export async function recordHeartbeatResult(input: {
     })
     .where(eq(schema.sessionHeartbeats.sessionId, input.sessionId))
     .returning();
-  return row ?? null;
+  const row = updatedRow ?? null;
+  if (row && input.failed && row.failureCount >= MAX_HEARTBEAT_FAILURES) {
+    await disableSessionHeartbeat(input.sessionId);
+    logger.warn('auto_disabled', {
+      sessionId: input.sessionId,
+      failureCount: row.failureCount,
+    });
+  }
+  return row;
 }
 
-/** Track the sleeping wake-workflow run id for this heartbeat. */
-export async function setHeartbeatWorkflowRunId(
-  sessionId: string,
-  workflowRunId: string | null,
-) {
-  await db
+/**
+ * Atomically attach a wake-workflow run id: the update only applies while
+ * the column still holds `expectedRunId` (null-aware compare — this drizzle
+ * version has no isNotDistinctFrom). Returns the run id NOW stored, or null
+ * when the row changed underneath us (a concurrent ensure won the race, or
+ * the heartbeat row vanished). Callers detect a lost race by comparing
+ * against their own candidate run id.
+ */
+export async function claimHeartbeatWorkflowRunId(input: {
+  sessionId: string;
+  expectedRunId: string | null;
+  newRunId: string;
+}): Promise<string | null> {
+  const [row] = await db
     .update(schema.sessionHeartbeats)
-    .set({ heartbeatWorkflowRunId: workflowRunId, updatedAt: new Date() })
-    .where(eq(schema.sessionHeartbeats.sessionId, sessionId));
+    .set({ heartbeatWorkflowRunId: input.newRunId, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.sessionHeartbeats.sessionId, input.sessionId),
+        input.expectedRunId === null
+          ? isNull(schema.sessionHeartbeats.heartbeatWorkflowRunId)
+          : eq(
+              schema.sessionHeartbeats.heartbeatWorkflowRunId,
+              input.expectedRunId,
+            ),
+      ),
+    )
+    .returning({ runId: schema.sessionHeartbeats.heartbeatWorkflowRunId });
+  return row?.runId ?? null;
 }
 
 /** Disable a heartbeat (auto-disable on repeated dispatch failures). */

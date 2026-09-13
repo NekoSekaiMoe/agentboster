@@ -30,7 +30,20 @@ async function readHeartbeatRow(sessionId: string) {
   return getSessionHeartbeat(sessionId);
 }
 
-async function postHeartbeatTrigger(sessionId: string) {
+/** Outcome of one trigger POST: whether it got 2xx, the HTTP status when a
+ *  response arrived (null = the request never reached the endpoint: URL /
+ *  auth-secret construction or network failure), and the error message for
+ *  diagnostics. Returned instead of thrown so the counting decision below
+ *  can see WHO already recorded the failure. */
+export interface TriggerOutcome {
+  ok: boolean;
+  status: number | null;
+  error?: string;
+}
+
+export async function postHeartbeatTrigger(
+  sessionId: string,
+): Promise<TriggerOutcome> {
   'use step';
 
   const { assertBotAuthSecret, getAppBaseUrl } = await import(
@@ -42,14 +55,48 @@ async function postHeartbeatTrigger(sessionId: string) {
     {
       method: 'POST',
       body: { sessionId },
+      // Resolve (instead of throw) on non-2xx so the status survives to
+      // the caller — who counts the failure depends on it.
+      ignoreResponseError: true,
     },
   );
-  if (!response.ok) {
-    throw new Error(
-      `Heartbeat callback failed with status ${response.status}.`,
-    );
-  }
-  return response._data as unknown;
+  return { ok: response.ok, status: response.status };
+}
+
+/**
+ * Whether the wake loop itself must record a failure for a trigger outcome.
+ *
+ * Counting rules: the endpoint records failures itself in
+ * deliverSessionHeartbeat (no-thread / dispatch failure → markFailed → the
+ * route answers 500), so a 500 response has ALREADY been counted — recording
+ * it here too would double-increment failureCount. Everything else that is
+ * not 2xx is invisible to the endpoint's accounting and must be recorded
+ * here:
+ * - status === null: the request never arrived (missing auth secret, bad
+ *   base URL, network error) — nothing ran on the other side;
+ * - 4xx the endpoint emitted WITHOUT counting (403 bad secret, 400 bad
+ *   body) and proxy 5xx that never reached the app.
+ */
+export function shouldRecordTriggerFailure(outcome: {
+  ok: boolean;
+  status: number | null;
+}): boolean {
+  if (outcome.ok) return false;
+  return outcome.status === null || outcome.status !== 500;
+}
+
+/** Record a trigger failure on the row (SQL-side increment + auto-disable
+ *  at MAX_HEARTBEAT_FAILURES — both live in recordHeartbeatResult). */
+async function recordTriggerFailureStep(sessionId: string): Promise<void> {
+  'use step';
+
+  const { recordHeartbeatResult } = await import('@/lib/core/db/heartbeat');
+  await recordHeartbeatResult({
+    sessionId,
+    reply: false,
+    chatRunId: null,
+    failed: true,
+  });
 }
 
 /**
@@ -81,16 +128,43 @@ export async function sessionHeartbeatWorkflow(sessionId: string) {
       continue;
     }
 
+    // Fire the trigger. Failures are classified, not just logged: the ones
+    // the endpoint already counted (its 500s) must not be re-counted, the
+    // ones it never saw (no response / 4xx / proxy 5xx) must be recorded
+    // here or a permanently broken trigger path would spin forever without
+    // ever tripping auto-disable. A failing record step must not kill the
+    // loop either — the next slot retries the whole cycle.
+    let outcome: TriggerOutcome;
     try {
-      await postHeartbeatTrigger(sessionId);
+      outcome = await postHeartbeatTrigger(sessionId);
     } catch (error) {
-      // The endpoint records failures on the row (failureCount /
-      // auto-disable). A transient HTTP error must not kill the loop —
-      // the next slot retries.
+      // The trigger step itself blew up (import/machinery) — no HTTP
+      // outcome exists; treat it as a never-reached-endpoint failure.
+      outcome = {
+        ok: false,
+        status: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (!outcome.ok) {
       logger.warn('wake_workflow:trigger_failed', {
         sessionId,
-        error: error instanceof Error ? error.message : String(error),
+        status: outcome.status,
+        error: outcome.error,
       });
+      if (shouldRecordTriggerFailure(outcome)) {
+        try {
+          await recordTriggerFailureStep(sessionId);
+        } catch (recordError) {
+          logger.warn('wake_workflow:failure_record_failed', {
+            sessionId,
+            error:
+              recordError instanceof Error
+                ? recordError.message
+                : String(recordError),
+          });
+        }
+      }
     }
   }
 }

@@ -493,8 +493,14 @@ export async function chatWorkflow(
       // forces the first model call to that tool.
       heartbeat,
     });
+    // Heartbeat runs spend step 0 on the forced heartbeat_decision call;
+    // with max_steps = 1 there would be no step left to compose the
+    // proactive reply (reply=true could never speak — the decision step
+    // carries no text, so extractFinalAssistantText would return null and
+    // the run would be recorded as silent). Keep the floor at 1 for normal
+    // runs, 2 for heartbeat runs.
     const maxSteps = Math.max(
-      1,
+      heartbeat ? 2 : 1,
       effectiveConfig.autonomy?.max_steps ?? DEFAULT_MAIN_MAX_STEPS,
     );
     // Tool-loop circuit breaker (aionrs breakers). Counts consecutive
@@ -649,6 +655,20 @@ export async function chatWorkflow(
         preventClose: true,
         maxSteps,
         collectUIMessages: false,
+        // Heartbeat: enforce reply=false the moment it is decided. The
+        // decision lands on step 0 (forced toolChoice); without this stop
+        // condition the loop would keep taking unconstrained steps —
+        // including state-mutating tools — after the model already chose
+        // to stay silent. stopWhen terminates the loop NORMALLY after the
+        // decision step (not as an error), and the delivery gate below
+        // then records the silent outcome. maxSteps stays enforced
+        // alongside (both conditions are checked independently).
+        ...(heartbeat
+          ? {
+              stopWhen: ({ steps }: { steps: StepResult<ToolSet>[] }) =>
+                extractHeartbeatDecision(steps)?.reply === false,
+            }
+          : {}),
         experimental_repairToolCall: async ({ toolCall, tools }) => {
           // DurableAgent only invokes this hook on schema-validation failure,
           // not on "tool not found". The empty-name / unknown-name crash is
@@ -922,14 +942,37 @@ export async function chatWorkflow(
       // transcript still records the run for the Web UI, but the IM thread
       // stays untouched. Only reply=true sends the final assistant text.
       if (heartbeat) {
-        try {
-          const decision = extractHeartbeatDecision(result.steps);
-          const finalText = extractFinalAssistantText(result.messages);
-          if (decision?.reply === true && finalText && source.type === 'im') {
-            const delivered = await deliverHeartbeatReplyStep({
+        const decision = extractHeartbeatDecision(result.steps);
+        const finalText = extractFinalAssistantText(result.messages);
+        if (decision?.reply === true && finalText && source.type === 'im') {
+          // Delivery and outcome-recording are isolated from each other:
+          // a throwing delivery (adapter/network error) must STILL be
+          // recorded as failed so failureCount grows toward auto-disable —
+          // previously the outer catch skipped the record entirely and
+          // persistent IM breakage never tripped it. A failing record call
+          // must not unwind anything else either: the chat run itself is
+          // already completed and persisted.
+          let delivered = false;
+          let deliveryError: unknown = null;
+          try {
+            delivered = await deliverHeartbeatReplyStep({
               source,
               text: finalText,
             });
+          } catch (error) {
+            deliveryError = error;
+          }
+          if (deliveryError !== null) {
+            logger.warn('heartbeat:deliver_threw', {
+              sessionId,
+              runId,
+              error:
+                deliveryError instanceof Error
+                  ? deliveryError.message
+                  : String(deliveryError),
+            });
+          }
+          try {
             await recordHeartbeatOutcomeStep({
               sessionId,
               reply: true,
@@ -941,7 +984,18 @@ export async function chatWorkflow(
               runId,
               delivered,
             });
-          } else {
+          } catch (recordError) {
+            logger.warn('heartbeat:outcome_record_failed', {
+              sessionId,
+              runId,
+              error:
+                recordError instanceof Error
+                  ? recordError.message
+                  : String(recordError),
+            });
+          }
+        } else {
+          try {
             await recordHeartbeatOutcomeStep({
               sessionId,
               reply: false,
@@ -952,18 +1006,16 @@ export async function chatWorkflow(
               runId,
               decided: decision !== null,
             });
+          } catch (recordError) {
+            logger.warn('heartbeat:outcome_record_failed', {
+              sessionId,
+              runId,
+              error:
+                recordError instanceof Error
+                  ? recordError.message
+                  : String(recordError),
+            });
           }
-        } catch (heartbeatError) {
-          // Best-effort: a delivery/recording failure must not fail the
-          // chat run itself — the assistant reply is already persisted.
-          logger.warn('heartbeat:delivery_failed', {
-            sessionId,
-            runId,
-            error:
-              heartbeatError instanceof Error
-                ? heartbeatError.message
-                : String(heartbeatError),
-          });
         }
       }
 

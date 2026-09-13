@@ -31,6 +31,18 @@ export async function getSpill(
   if (!value || typeof value !== 'object') return null;
   const record = value as StoredSpill;
   if (typeof record.text !== 'string') return null;
+  // Integrity: fetch_spilled_output computes paging metadata off totalChars
+  // (original output length) vs storedChars. A corrupt record with a
+  // missing/non-integer totalChars would report `totalChars: undefined` and
+  // a wrong truncatedInStore (`undefined > n` === false) — treat it like a
+  // missing record instead.
+  if (
+    typeof record.totalChars !== 'number' ||
+    !Number.isSafeInteger(record.totalChars) ||
+    record.totalChars < record.text.length
+  ) {
+    return null;
+  }
   // Ownership: spill ids surface in model-visible notes, so a
   // prompt-injected or cross-session caller must not be able to read
   // another session's output. Fail closed on a missing owner (records

@@ -7,14 +7,10 @@
  * config, startWorkflow) is free to be host-only.
  */
 import { createLogger } from '@/lib/utils/logger';
-import { start } from 'workflow/api';
+import { getRun, start } from 'workflow/api';
 import type { ChatSource, IMChatSource } from '@/types/workflow';
 
 const logger = createLogger('workflow.heartbeat.dispatch');
-
-/** Auto-disable after this many consecutive dispatch failures (mirrors
- *  MAX_SCHEDULE_FAILURES semantics). */
-export const MAX_HEARTBEAT_FAILURES = 3;
 
 /**
  * The synthetic instruction appended as the LAST user message of the run.
@@ -31,17 +27,77 @@ const HEARTBEAT_WAKEUP_PROMPT = [
   'If you decide to speak, compose exactly one short message for the thread; do not repeat this instruction or mention the heartbeat mechanics.',
 ].join(' ');
 
-/** Start (or restart) the wake loop for a session. Fire-and-forget. */
+/**
+ * Start (or restart) the wake loop for a session. Fire-and-forget.
+ *
+ * Exactly-one-run coordination (repeated/concurrent PUTs must not stack
+ * sleeping loops):
+ * 1. A recorded run id that is still live (pending/running) is reused —
+ *    no new run is started.
+ * 2. Otherwise a replacement run is started and CAS-claimed on the row
+ *    (`claimHeartbeatWorkflowRunId`): if a concurrent ensure replaced the
+ *    column first, our run lost the race and is cancelled, keeping exactly
+ *    one active loop. Terminal runs (completed/failed/cancelled) and stale
+ *    run ids (run evicted — getRun throws) are transparently replaced.
+ */
 export async function ensureHeartbeatWorkflow(sessionId: string) {
   try {
     const { sessionHeartbeatWorkflow } = await import(
       '@/lib/workflow/scheduled/heartbeat'
     );
-    const run = await start(sessionHeartbeatWorkflow, [sessionId]);
-    const { setHeartbeatWorkflowRunId } = await import(
+    const { claimHeartbeatWorkflowRunId, getSessionHeartbeat } = await import(
       '@/lib/core/db/heartbeat'
     );
-    await setHeartbeatWorkflowRunId(sessionId, run.runId);
+
+    const row = await getSessionHeartbeat(sessionId);
+    const existingRunId = row?.heartbeatWorkflowRunId ?? null;
+    if (existingRunId) {
+      try {
+        const status = await getRun(existingRunId).status;
+        if (status === 'pending' || status === 'running') {
+          logger.info('wake_workflow:reused', {
+            sessionId,
+            runId: existingRunId,
+          });
+          return existingRunId;
+        }
+      } catch {
+        // Unknown/evicted run id — fall through and start a replacement.
+      }
+    }
+
+    const run = await start(sessionHeartbeatWorkflow, [sessionId]);
+    const claimedRunId = await claimHeartbeatWorkflowRunId({
+      sessionId,
+      expectedRunId: existingRunId,
+      newRunId: run.runId,
+    });
+    if (claimedRunId !== run.runId) {
+      // Lost the race: a concurrent ensure already parked ITS run on the
+      // row. Cancel ours so only the winner keeps looping. (A null claim
+      // also covers the row being deleted mid-flight — the cancelled run
+      // would have exited at its next config read anyway.)
+      try {
+        await run.cancel();
+      } catch (cancelError) {
+        // Best-effort: a failed cancel leaves a duplicate loop that the
+        // endpoint's CAS claim already dedupes on every wake.
+        logger.warn('wake_workflow:cancel_failed', {
+          sessionId,
+          runId: run.runId,
+          error:
+            cancelError instanceof Error
+              ? cancelError.message
+              : String(cancelError),
+        });
+      }
+      logger.info('wake_workflow:superseded', {
+        sessionId,
+        runId: run.runId,
+        winnerRunId: claimedRunId,
+      });
+      return claimedRunId;
+    }
     logger.info('wake_workflow:started', { sessionId, runId: run.runId });
     return run.runId;
   } catch (error) {
@@ -65,7 +121,7 @@ export async function deliverSessionHeartbeat(input: {
   runId?: string;
 }> {
   const { getSession } = await import('@/lib/core/db/chat');
-  const { claimDueHeartbeat, disableSessionHeartbeat, recordHeartbeatResult } =
+  const { claimDueHeartbeat, MAX_HEARTBEAT_FAILURES, recordHeartbeatResult } =
     await import('@/lib/core/db/heartbeat');
 
   const session = await getSession(input.sessionId);
@@ -80,6 +136,10 @@ export async function deliverSessionHeartbeat(input: {
   }
 
   const markFailed = async (reason: string) => {
+    // recordHeartbeatResult auto-disables at MAX_HEARTBEAT_FAILURES (the
+    // disable check is centralized there — the run-side delivery gate and
+    // the wake-loop trigger failures flow through the same function);
+    // here we only add the reason to the log.
     const row = await recordHeartbeatResult({
       sessionId: input.sessionId,
       reply: false,
@@ -87,7 +147,6 @@ export async function deliverSessionHeartbeat(input: {
       failed: true,
     });
     if ((row?.failureCount ?? 0) >= MAX_HEARTBEAT_FAILURES) {
-      await disableSessionHeartbeat(input.sessionId);
       logger.warn('heartbeat:auto_disabled', {
         sessionId: input.sessionId,
         failureCount: row?.failureCount,
