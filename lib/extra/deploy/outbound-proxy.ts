@@ -69,6 +69,22 @@ export function shouldEnableProxy(env: ProxyEnv): boolean {
 }
 
 /**
+ * Redact credentials from a proxy URL for logging (CWE-532): keep only
+ * scheme://host:port. Values that fail URL parsing are masked entirely —
+ * an unparseable proxy string could contain anything. Exported for
+ * testing.
+ */
+export function redactProxyUrl(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return '<redacted>';
+  }
+}
+
+/**
  * Install the env-driven proxy dispatcher on the global fetch. Safe to call
  * on any deployment: it no-ops on Vercel and when no proxy variables are
  * configured.
@@ -81,10 +97,26 @@ export async function setupOutboundProxy(): Promise<void> {
 
   try {
     const { EnvHttpProxyAgent, setGlobalDispatcher } = await import('undici');
-    setGlobalDispatcher(new EnvHttpProxyAgent());
+    // Pin the agent to the values readProxyEnv() resolved. undici reads env
+    // lowercase-first (https_proxy before HTTPS_PROXY) and falls back to raw
+    // process.env for undefined options — both would diverge from the
+    // uppercase-first, blank-skipping resolution above (traffic could use a
+    // different proxy than the one logged, and a blank HTTP_PROXY would
+    // resurrect itself as an invalid ProxyAgent URI). `''` is defined but
+    // falsy, so undici treats it as "not configured" instead of re-reading
+    // the environment.
+    setGlobalDispatcher(
+      new EnvHttpProxyAgent({
+        httpsProxy: env.HTTPS_PROXY ?? '',
+        httpProxy: env.HTTP_PROXY ?? '',
+        noProxy: env.NO_PROXY ?? '',
+      }),
+    );
+    // Never log full proxy URLs — they can embed credentials and
+    // logger.write forwards context to console verbatim (CWE-532).
     logger.info('outbound proxy enabled', {
-      httpsProxy: env.HTTPS_PROXY,
-      httpProxy: env.HTTP_PROXY,
+      httpsProxy: redactProxyUrl(env.HTTPS_PROXY),
+      httpProxy: redactProxyUrl(env.HTTP_PROXY),
       noProxy: env.NO_PROXY,
     });
   } catch (error) {

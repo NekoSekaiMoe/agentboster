@@ -2118,9 +2118,13 @@ export class AgentSession {
       return compactionResult;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      // Extension cancels throw 'Compaction cancelled' without aborting the
+      // signal, and in-flight cancellation arrives as a plain Error (the
+      // adapter converts AbortError to stopReason 'error') — so check the
+      // signal instead of the exception type/name.
       const aborted =
         message === 'Compaction cancelled' ||
-        (error instanceof Error && error.name === 'AbortError');
+        this._compactionAbortController?.signal.aborted === true;
       this._emit({
         type: 'compaction_end',
         reason: 'manual',
@@ -2338,6 +2342,7 @@ export class AgentSession {
   ): Promise<boolean> {
     const settings = this.settingsManager.getCompactionSettings();
     let started = false;
+    let compactionSignal: AbortSignal | undefined;
 
     try {
       if (!this.model) {
@@ -2360,6 +2365,7 @@ export class AgentSession {
 
       this._emit({ type: 'compaction_start', reason });
       this._autoCompactionAbortController = new AbortController();
+      compactionSignal = this._autoCompactionAbortController.signal;
       started = true;
 
       let extensionCompaction: CompactionResult | undefined;
@@ -2509,22 +2515,28 @@ export class AgentSession {
       const errorMessage =
         error instanceof Error ? error.message : 'compaction failed';
       if (started) {
+        // Cancellation arrives here as a plain Error: the adapter converts
+        // AbortError into stopReason 'error', which generateSummary rethrows
+        // as `new Error(...)`. Never infer aborted-ness from the exception
+        // type — trust the signal handed to the compaction request.
+        const aborted = compactionSignal?.aborted ?? false;
         this._emit({
           type: 'compaction_end',
           reason,
           result: undefined,
-          aborted: false,
+          aborted,
           willRetry: false,
-          errorMessage:
-            reason === 'overflow'
+          errorMessage: aborted
+            ? undefined
+            : reason === 'overflow'
               ? `Context overflow recovery failed: ${errorMessage}`
               : `Auto-compaction failed: ${errorMessage}`,
         });
         await this._emitSessionCompactFailed(
           reason,
           willRetry,
-          false,
-          errorMessage,
+          aborted,
+          aborted ? 'Compaction cancelled' : errorMessage,
         );
       }
       return false;
