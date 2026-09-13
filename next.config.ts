@@ -44,6 +44,9 @@ const nextConfig: NextConfig = {
     // so they never enter the workflow steps bundle either.
     'pg',
     '@aws-sdk/client-s3',
+    // Self-hosted outbound proxy dispatcher (lib/extra/deploy/outbound-proxy.ts,
+    // loaded via `await import()` from host-only instrumentation.ts).
+    'undici',
   ],
   async headers() {
     return [

@@ -186,6 +186,8 @@ export default defineBuildInTool({
           const providerOptions = await resolveAgentProviderOptions(
             context.appConfig,
             modelId,
+            undefined,
+            input.batchId,
           );
 
           const result = await generateText({

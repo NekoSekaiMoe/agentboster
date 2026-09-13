@@ -36,6 +36,15 @@ export async function resolveAgentProviderOptions(
    * default behavior applies.
    */
   thinkingLevel?: string,
+  /**
+   * Stable per-conversation identifier (e.g. workflow runId). Sent as
+   * OpenAI Responses `promptCacheKey` so requests that share a prompt
+   * prefix route to the same cache shard and hit the prompt cache more
+   * often (pi 0.85.1 prompt-cache parity; the 30m `prompt_cache_options.ttl`
+   * variant is not exposed by @ai-sdk/openai 3.0.x yet — revisit on SDK
+   * upgrade).
+   */
+  cacheKey?: string,
 ): Promise<ProviderOptions | undefined> {
   'use step';
 
@@ -57,6 +66,9 @@ export async function resolveAgentProviderOptions(
     const openaiOpts: Record<string, string | boolean> = {};
     if (usesResponsesApi(providerConfig)) {
       openaiOpts.store = false;
+      if (cacheKey) {
+        openaiOpts.promptCacheKey = cacheKey;
+      }
       if (level && level !== 'off') {
         // xhigh has no OpenAI equivalent; clamp to high.
         openaiOpts.reasoningEffort = level === 'xhigh' ? 'high' : level;

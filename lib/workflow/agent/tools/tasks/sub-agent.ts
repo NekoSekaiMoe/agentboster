@@ -334,6 +334,8 @@ async function runSubagent(
   const providerOptions = await resolveAgentProviderOptions(
     context.appConfig,
     modelId,
+    undefined,
+    subagentId,
   );
   await writeSubagentEvent({
     subagentId,

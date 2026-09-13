@@ -36,6 +36,20 @@ export async function register(): Promise<void> {
   // This is the pattern Next.js documents for runtime-gated instrumentation.
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     try {
+      // Install the self-hosted outbound proxy dispatcher (HTTP(S)_PROXY /
+      // NO_PROXY) before any request is served — no-ops on Vercel and when
+      // no proxy env vars are set. Same host-only pattern as pg-driver below.
+      const { setupOutboundProxy } = await import(
+        '@/lib/extra/deploy/outbound-proxy'
+      );
+      await setupOutboundProxy();
+    } catch (error) {
+      // Proxy setup must never block startup; setupOutboundProxy already
+      // catches internally — this guards the module load itself.
+      console.error('instrumentation: outbound proxy setup failed', error);
+    }
+
+    try {
       const { warmupDatabase } = await import('@/lib/core/db/pg-driver');
       await warmupDatabase();
     } catch (error) {

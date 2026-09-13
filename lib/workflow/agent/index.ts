@@ -638,6 +638,7 @@ export async function chatWorkflow(
       effectiveConfig,
       modelId,
       thinkingLevel,
+      runId,
     );
     const agent = new DurableAgent({
       model: createModelResolver(effectiveConfig, modelId),
