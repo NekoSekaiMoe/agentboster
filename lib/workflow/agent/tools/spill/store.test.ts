@@ -56,3 +56,48 @@ describe('getSpill ownership binding', () => {
     await expect(getSpill('call-x', 'sess-1')).resolves.toBeNull();
   });
 });
+
+describe('getSpill totalChars integrity', () => {
+  beforeEach(() => {
+    kvGetMock.mockReset();
+  });
+
+  it('accepts a valid record with totalChars larger than the stored prefix', async () => {
+    kvGetMock.mockResolvedValue(
+      record({ text: 'abcdef', totalChars: 600_000 }),
+    );
+    await expect(getSpill('call-1')).resolves.toMatchObject({
+      text: 'abcdef',
+      totalChars: 600_000,
+    });
+  });
+
+  it('returns null when totalChars is missing', async () => {
+    const { totalChars: _drop, ...withoutTotal } = record();
+    kvGetMock.mockResolvedValue(withoutTotal);
+    await expect(getSpill('call-1')).resolves.toBeNull();
+  });
+
+  it('returns null when totalChars is not a safe integer', async () => {
+    kvGetMock.mockResolvedValue(record({ totalChars: 1.5 }));
+    await expect(getSpill('call-1')).resolves.toBeNull();
+    kvGetMock.mockResolvedValue(record({ totalChars: Number.NaN }));
+    await expect(getSpill('call-1')).resolves.toBeNull();
+    kvGetMock.mockResolvedValue(
+      record({ totalChars: Number.MAX_SAFE_INTEGER + 1 }),
+    );
+    await expect(getSpill('call-1')).resolves.toBeNull();
+    kvGetMock.mockResolvedValue(
+      record({ totalChars: '6' as unknown as number }),
+    );
+    await expect(getSpill('call-1')).resolves.toBeNull();
+  });
+
+  it('returns null when totalChars is smaller than the stored text', async () => {
+    // Also covers negative values — anything below text.length is invalid.
+    kvGetMock.mockResolvedValue(record({ totalChars: 3 }));
+    await expect(getSpill('call-1')).resolves.toBeNull();
+    kvGetMock.mockResolvedValue(record({ totalChars: -1 }));
+    await expect(getSpill('call-1')).resolves.toBeNull();
+  });
+});

@@ -1,5 +1,6 @@
 import {
   assertCanAccessOwnedResource,
+  AuthError,
   requireAuthAccess,
 } from '@/lib/auth/access';
 import { getSession } from '@/lib/core/db/chat';
@@ -44,7 +45,8 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
-  assertCanAccessOwnedResource(access, session.userId);
+  const ownershipError = ownershipFailure(access, session);
+  if (ownershipError) return ownershipError;
 
   const heartbeat = await getSessionHeartbeat(sessionId);
   return NextResponse.json({
@@ -89,7 +91,8 @@ export async function PUT(
   if (!session) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
-  assertCanAccessOwnedResource(access, session.userId);
+  const ownershipError = ownershipFailure(access, session);
+  if (ownershipError) return ownershipError;
 
   if (!isImSessionChannel(session.channel)) {
     return NextResponse.json(
@@ -107,6 +110,15 @@ export async function PUT(
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
+  }
+  // `JSON.parse('null')` is valid JSON — the cast below does not change the
+  // runtime value, so reading `input.enabled` off null would throw a
+  // TypeError and surface as a 500. Reject non-object bodies first.
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return NextResponse.json(
+      { error: 'Request body must be an object.' },
+      { status: 400 },
+    );
   }
   const input = body as { enabled?: unknown; intervalMinutes?: unknown };
   if (typeof input.enabled !== 'boolean') {
@@ -151,4 +163,27 @@ export async function PUT(
 
 function isImSessionChannel(channel: string): boolean {
   return (ADAPTER_NAMES as readonly string[]).includes(channel);
+}
+
+/**
+ * Ownership gate: assertCanAccessOwnedResource throws AuthError('Forbidden',
+ * 403), which Next would otherwise surface as an uncaught 500. Convert it
+ * into the proper status response instead.
+ */
+function ownershipFailure(
+  access: Awaited<ReturnType<typeof requireAuthAccess>>,
+  session: { userId: string | null },
+): NextResponse | null {
+  try {
+    assertCanAccessOwnedResource(access, session.userId);
+    return null;
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
+    }
+    throw error;
+  }
 }
