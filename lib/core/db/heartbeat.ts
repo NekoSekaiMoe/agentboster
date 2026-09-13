@@ -1,6 +1,6 @@
 import { db, schema } from '@/lib/core/db';
 import { createLogger } from '@/lib/utils/logger';
-import { and, eq, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
 
 const logger = createLogger('db.heartbeat');
 
@@ -169,6 +169,12 @@ export async function listDueSessionHeartbeats(now = new Date()) {
  * auto-disable-checked HERE (single source of truth): when failureCount
  * reaches MAX_HEARTBEAT_FAILURES the heartbeat is disabled. The returned
  * row reflects the increment (pre-disable values for enabled/nextRunAt).
+ *
+ * The disable itself is a CONDITIONAL update: failureCount >=
+ * MAX_HEARTBEAT_FAILURES is re-checked in the WHERE clause, so a concurrent
+ * success that resets the counter between this call's increment and its
+ * disable wins the race — the "three consecutive failures" rule must not
+ * fire on a stale snapshot.
  */
 export async function recordHeartbeatResult(input: {
   sessionId: string;
@@ -195,11 +201,25 @@ export async function recordHeartbeatResult(input: {
     .returning();
   const row = updatedRow ?? null;
   if (row && input.failed && row.failureCount >= MAX_HEARTBEAT_FAILURES) {
-    await disableSessionHeartbeat(input.sessionId);
-    logger.warn('auto_disabled', {
-      sessionId: input.sessionId,
-      failureCount: row.failureCount,
-    });
+    // `row` is the PRE-disable snapshot — recheck the live counter in the
+    // WHERE so a racing success (which resets failureCount to 0) is not
+    // overridden by a disable based on this stale snapshot.
+    const [disabled] = await db
+      .update(schema.sessionHeartbeats)
+      .set({ enabled: false, nextRunAt: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.sessionHeartbeats.sessionId, input.sessionId),
+          gte(schema.sessionHeartbeats.failureCount, MAX_HEARTBEAT_FAILURES),
+        ),
+      )
+      .returning({ failureCount: schema.sessionHeartbeats.failureCount });
+    if (disabled) {
+      logger.warn('auto_disabled', {
+        sessionId: input.sessionId,
+        failureCount: disabled.failureCount,
+      });
+    }
   }
   return row;
 }

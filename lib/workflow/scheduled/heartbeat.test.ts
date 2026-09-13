@@ -81,6 +81,10 @@ describe('postHeartbeatTrigger', () => {
       ok: false,
       status: 500,
     });
+    expect(ofetchRawMock).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ ignoreResponseError: true }),
+    );
   });
 
   it('propagates pre-request failures (no response exists)', async () => {
