@@ -211,6 +211,33 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
   ) => boolean | Promise<boolean>;
 
   /**
+   * Called between tool execution and the next assistant request in the same
+   * run — after `turn_end` and the `shouldStopAfterTurn` check, before
+   * steering messages are polled.
+   *
+   * Use this to compact the context mid-run when a large tool result pushed it
+   * over the compaction threshold; without this hook the oversized context is
+   * sent to the provider on the next request (pi #6879). The hook may replace
+   * `context.messages` in place (e.g. with a compacted history) — the loop
+   * reads it fresh for the next request.
+   *
+   * Only called when the loop will make another assistant request (the turn
+   * had tool calls that were not all-terminating).
+   *
+   * Contract: must not throw or reject. Compaction failures should be
+   * reported through the host's own event channels; the run continues with
+   * the existing context.
+   */
+  beforeNextAssistantRequest?: (info: {
+    /** The loop's live context. `messages` may be replaced in place. */
+    context: AgentContext;
+    /** The assistant message that completed the turn. */
+    lastAssistantMessage: AssistantMessage;
+    /** Tool result messages produced by the turn. */
+    toolResults: ToolResultMessage[];
+  }) => Promise<void>;
+
+  /**
    * Returns steering messages to inject into the conversation mid-run.
    *
    * Called after the current assistant turn finishes executing its tool calls, unless `shouldStopAfterTurn` exits first.

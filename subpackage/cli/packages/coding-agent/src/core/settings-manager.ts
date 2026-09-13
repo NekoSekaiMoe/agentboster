@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import lockfile from 'proper-lockfile';
 import { CONFIG_DIR_NAME, getAgentDir } from '../config.ts';
+import { stripBom } from '../utils/json.ts';
 import { resolvePath } from '../utils/paths.ts';
 import {
   DEFAULT_HTTP_IDLE_TIMEOUT_MS,
@@ -414,7 +415,7 @@ export class SettingsManager {
     if (!content) {
       return {};
     }
-    const settings = JSON.parse(content);
+    const settings = JSON.parse(stripBom(content));
     return SettingsManager.migrateSettings(settings);
   }
 
@@ -680,7 +681,7 @@ export class SettingsManager {
     this.storage.withLock(scope, (current) => {
       const currentFileSettings = current
         ? SettingsManager.migrateSettings(
-            JSON.parse(current) as Record<string, unknown>,
+            JSON.parse(stripBom(current)) as Record<string, unknown>,
           )
         : {};
       const mergedSettings: Settings = { ...currentFileSettings };

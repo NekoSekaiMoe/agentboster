@@ -88,8 +88,23 @@ export function parseArgs(args: string[]): Args {
     diagnostics: [],
   };
 
+  // "--" ends option parsing: every argument after it is treated as a
+  // literal positional message (pi #7269 — dash-prefixed prompts were
+  // previously parsed as options).
+  let endOfOptions = false;
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+
+    if (endOfOptions) {
+      result.messages.push(arg);
+      continue;
+    }
+
+    if (arg === '--') {
+      endOfOptions = true;
+      continue;
+    }
 
     if (arg === '--help' || arg === '-h') {
       result.help = true;
@@ -318,6 +333,7 @@ ${chalk.bold('Options:')}
   --offline                      Disable startup network operations (same as PI_OFFLINE=1)
   --help, -h                     Show this help
   --version, -v                  Show version number
+  --                             Treat all following arguments as messages, not options
 
 Extensions can register additional flags (e.g., --plan from plan-mode extension).${extensionFlagsText}
 

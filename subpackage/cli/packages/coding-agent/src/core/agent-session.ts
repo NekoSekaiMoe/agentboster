@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import type {
   Agent,
+  AgentContext,
   AgentEvent,
   AgentMessage,
   AgentState,
@@ -1711,9 +1712,15 @@ export class AgentSession {
 
   /**
    * Abort current operation and wait for agent to become idle.
+   *
+   * Also cancels in-progress manual compaction and branch summarization —
+   * these run outside the agent loop, so aborting the agent alone leaves
+   * them running (pi #8920).
    */
   async abort(): Promise<void> {
     this.abortRetry();
+    this.abortCompaction();
+    this.abortBranchSummary();
     this.agent.abort();
     await this.agent.waitForIdle();
   }
@@ -2122,6 +2129,7 @@ export class AgentSession {
         willRetry: false,
         errorMessage: aborted ? undefined : `Compaction failed: ${message}`,
       });
+      await this._emitSessionCompactFailed('manual', false, aborted, message);
       throw error;
     } finally {
       this._compactionAbortController = undefined;
@@ -2142,6 +2150,57 @@ export class AgentSession {
    */
   abortBranchSummary(): void {
     this._branchSummaryAbortController?.abort();
+  }
+
+  /**
+   * Internal: notify extensions that a compaction failed or was aborted
+   * (pi 0.84.3 `session_compact_failed` parity).
+   */
+  private async _emitSessionCompactFailed(
+    reason: 'manual' | 'threshold' | 'overflow',
+    willRetry: boolean,
+    aborted: boolean,
+    errorMessage: string,
+  ): Promise<void> {
+    await this._extensionRunner.emit({
+      type: 'session_compact_failed',
+      reason,
+      willRetry,
+      aborted,
+      errorMessage,
+    });
+  }
+
+  /**
+   * Mid-run compaction checkpoint (pi #6879), called by the agent loop
+   * between tool execution and the next assistant request in the same run.
+   *
+   * A large tool result can push the context over the compaction threshold
+   * here. Compacting at this point means the next request uses the summarized
+   * history instead of sending the oversized context to the provider and
+   * failing or degrading mid-run.
+   *
+   * On success, `_checkCompaction` -> `_runAutoCompaction` replaces
+   * `agent.state.messages` with the compacted history. The loop operates on a
+   * snapshot copy of the context, so this method also swaps `context.messages`
+   * to make the compacted history visible to the rest of the run.
+   */
+  async runMidRunCompactionCheck(
+    context: AgentContext,
+    lastAssistantMessage: AssistantMessage,
+  ): Promise<void> {
+    if (this.isCompacting) return;
+    const messagesBefore = this.agent.state.messages;
+    try {
+      await this._checkCompaction(lastAssistantMessage, true);
+    } catch {
+      // Compaction failures are reported through compaction_end events by
+      // _runAutoCompaction; the run continues with the existing context.
+      return;
+    }
+    if (this.agent.state.messages !== messagesBefore) {
+      context.messages = this.agent.state.messages.slice();
+    }
   }
 
   /**
@@ -2254,7 +2313,15 @@ export class AgentSession {
       }
       contextTokens = estimate.tokens;
     } else {
-      contextTokens = directContextTokens;
+      // Include messages after the last assistant usage — tool results from
+      // the current run can push the context over the threshold after the
+      // assistant response was already generated (pi #6879). Without the
+      // trailing estimate, oversized tool output would only be caught after
+      // the next request fails.
+      const trailingTokens = estimateContextTokens(
+        this.agent.state.messages,
+      ).trailingTokens;
+      contextTokens = directContextTokens + trailingTokens;
     }
     if (shouldCompact(contextTokens, contextWindow, settings)) {
       return await this._runAutoCompaction('threshold', false);
@@ -2317,6 +2384,12 @@ export class AgentSession {
             aborted: true,
             willRetry: false,
           });
+          await this._emitSessionCompactFailed(
+            reason,
+            willRetry,
+            true,
+            'Cancelled by extension',
+          );
           return false;
         }
 
@@ -2364,6 +2437,12 @@ export class AgentSession {
           aborted: true,
           willRetry: false,
         });
+        await this._emitSessionCompactFailed(
+          reason,
+          willRetry,
+          true,
+          'Compaction cancelled',
+        );
         return false;
       }
 
@@ -2441,6 +2520,12 @@ export class AgentSession {
               ? `Context overflow recovery failed: ${errorMessage}`
               : `Auto-compaction failed: ${errorMessage}`,
         });
+        await this._emitSessionCompactFailed(
+          reason,
+          willRetry,
+          false,
+          errorMessage,
+        );
       }
       return false;
     } finally {

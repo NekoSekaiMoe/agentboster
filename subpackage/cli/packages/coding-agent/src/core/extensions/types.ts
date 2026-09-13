@@ -672,6 +672,19 @@ export interface SessionCompactEvent {
   willRetry: boolean;
 }
 
+/** Fired when context compaction fails or is aborted (pi 0.84.3 `session_compact_failed` parity) */
+export interface SessionCompactFailedEvent {
+  type: 'session_compact_failed';
+  /** What triggered the compaction: manual /compact, the context threshold, or context overflow recovery */
+  reason: 'manual' | 'threshold' | 'overflow';
+  /** True when the aborted turn would have been retried after this compaction (overflow recovery) */
+  willRetry: boolean;
+  /** Whether the compaction was cancelled via abort rather than failing on its own */
+  aborted: boolean;
+  /** Human-readable failure message */
+  errorMessage: string;
+}
+
 /** Fired before an extension runtime is torn down due to quit, reload, or session replacement. */
 export interface SessionShutdownEvent {
   type: 'session_shutdown';
@@ -717,6 +730,7 @@ export type SessionEvent =
   | SessionBeforeForkEvent
   | SessionBeforeCompactEvent
   | SessionCompactEvent
+  | SessionCompactFailedEvent
   | SessionShutdownEvent
   | SessionBeforeTreeEvent
   | SessionTreeEvent;
@@ -1298,6 +1312,10 @@ export interface ExtensionAPI {
   on(
     event: 'session_compact',
     handler: ExtensionHandler<SessionCompactEvent>,
+  ): void;
+  on(
+    event: 'session_compact_failed',
+    handler: ExtensionHandler<SessionCompactFailedEvent>,
   ): void;
   on(
     event: 'session_shutdown',

@@ -60,10 +60,19 @@ function findJpegTiffOffset(bytes: Uint8Array): number {
 
     if (marker === 0xe1) {
       if (offset + 4 >= bytes.length) return -1;
+      const length = (bytes[offset + 2] << 8) | bytes[offset + 3];
       const segmentStart = offset + 4;
-      if (segmentStart + 6 > bytes.length) return -1;
-      if (!hasExifHeader(bytes, segmentStart)) return -1;
-      return segmentStart + 6;
+      // Non-EXIF APP1 segments (e.g. XMP, which commonly precedes EXIF in
+      // files written by Adobe tools) must be skipped so the scan can reach
+      // the real EXIF APP1 further in (pi #8616).
+      if (
+        segmentStart + 6 <= bytes.length &&
+        hasExifHeader(bytes, segmentStart)
+      ) {
+        return segmentStart + 6;
+      }
+      offset += 2 + length;
+      continue;
     }
 
     if (offset + 4 > bytes.length) return -1;

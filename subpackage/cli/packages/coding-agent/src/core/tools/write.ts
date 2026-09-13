@@ -275,7 +275,10 @@ export function createWriteToolDefinition(
           content: [
             {
               type: 'text',
-              text: `Successfully wrote ${content.length} bytes to ${path}`,
+              text: `Successfully wrote ${Buffer.byteLength(
+                content,
+                'utf8',
+              )} bytes to ${path}`,
             },
           ],
           details: undefined,

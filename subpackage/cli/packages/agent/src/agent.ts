@@ -138,6 +138,8 @@ export interface AgentOptions {
   toolExecution?: ToolExecutionMode;
   /** Skip (rather than error) tool calls not in the local registry. See AgentLoopConfig. */
   skipUnknownTools?: boolean;
+  /** Mid-run hook between tool execution and the next assistant request. See AgentLoopConfig. */
+  beforeNextAssistantRequest?: AgentLoopConfig['beforeNextAssistantRequest'];
 }
 
 class PendingMessageQueue {
@@ -230,6 +232,8 @@ export class Agent {
   public toolExecution: ToolExecutionMode;
   /** Skip tool calls whose name is not in the local registry (thin-client mode). */
   public skipUnknownTools: boolean;
+  /** Mid-run hook between tool execution and the next assistant request. */
+  public beforeNextAssistantRequest?: AgentLoopConfig['beforeNextAssistantRequest'];
 
   constructor(options: AgentOptions = {}) {
     this._state = createMutableAgentState(options.initialState);
@@ -253,6 +257,7 @@ export class Agent {
     this.maxRetryDelayMs = options.maxRetryDelayMs;
     this.toolExecution = options.toolExecution ?? 'parallel';
     this.skipUnknownTools = options.skipUnknownTools === true;
+    this.beforeNextAssistantRequest = options.beforeNextAssistantRequest;
   }
 
   /**
@@ -492,6 +497,7 @@ export class Agent {
       maxRetryDelayMs: this.maxRetryDelayMs,
       toolExecution: this.toolExecution,
       skipUnknownTools: this.skipUnknownTools,
+      beforeNextAssistantRequest: this.beforeNextAssistantRequest,
       beforeToolCall: this.beforeToolCall,
       afterToolCall: this.afterToolCall,
       convertToLlm: this.convertToLlm,

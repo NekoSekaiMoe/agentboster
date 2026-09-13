@@ -553,6 +553,13 @@ export async function runRpcMode(
         return success(id, 'abort');
       }
 
+      case 'clear_queue': {
+        // Retrieve and clear queued steering and follow-up messages (pi
+        // 0.84.4 clear_queue parity) so RPC hosts can cancel pending input.
+        const queued = session.clearQueue();
+        return success(id, 'clear_queue', queued);
+      }
+
       case 'new_session': {
         const options = command.parentSession
           ? { parentSession: command.parentSession }

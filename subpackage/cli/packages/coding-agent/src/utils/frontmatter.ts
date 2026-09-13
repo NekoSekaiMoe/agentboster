@@ -1,5 +1,7 @@
 import { parse } from 'yaml';
 
+import { stripBom } from './json.ts';
+
 type ParsedFrontmatter<T extends Record<string, unknown>> = {
   frontmatter: T;
   body: string;
@@ -11,7 +13,7 @@ const normalizeNewlines = (value: string): string =>
 const extractFrontmatter = (
   content: string,
 ): { yamlString: string | null; body: string } => {
-  const normalized = normalizeNewlines(content);
+  const normalized = normalizeNewlines(stripBom(content));
 
   if (!normalized.startsWith('---')) {
     return { yamlString: null, body: normalized };

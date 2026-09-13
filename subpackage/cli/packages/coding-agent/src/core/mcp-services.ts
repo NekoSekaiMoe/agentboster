@@ -3,6 +3,8 @@ import { constants as fsConstants } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+import { stripBom } from '../utils/json.ts';
+
 export type McpServiceProtocol = 'mcp' | 'lsp';
 export type McpServiceSource = 'builtin' | 'project-config';
 
@@ -439,7 +441,7 @@ async function parseProjectConfigFile(
 ): Promise<ServiceCandidate[]> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await fs.readFile(filePath, 'utf8'));
+    parsed = JSON.parse(stripBom(await fs.readFile(filePath, 'utf8')));
   } catch {
     return [];
   }

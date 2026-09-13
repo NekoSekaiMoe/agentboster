@@ -352,6 +352,9 @@ export async function createAgentSession(
   };
 
   const extensionRunnerRef: { current?: ExtensionRunner } = {};
+  // Late-bound session ref: the Agent is constructed before the AgentSession,
+  // and the mid-run compaction hook needs the session's compaction logic.
+  const sessionRef: { current?: AgentSession } = {};
 
   agent = new Agent({
     initialState: {
@@ -403,6 +406,12 @@ export async function createAgentSession(
     transport: settingsManager.getTransport(),
     thinkingBudgets: settingsManager.getThinkingBudgets(),
     maxRetryDelayMs: settingsManager.getProviderRetrySettings().maxRetryDelayMs,
+    beforeNextAssistantRequest: async ({ context, lastAssistantMessage }) => {
+      await sessionRef.current?.runMidRunCompactionCheck(
+        context,
+        lastAssistantMessage,
+      );
+    },
   });
 
   // Restore messages if session has existing data
@@ -435,6 +444,7 @@ export async function createAgentSession(
     extensionRunnerRef,
     sessionStartEvent: options.sessionStartEvent,
   });
+  sessionRef.current = session;
   const extensionsResult = resourceLoader.getExtensions();
 
   return {

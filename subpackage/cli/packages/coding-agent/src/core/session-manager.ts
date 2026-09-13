@@ -6,6 +6,7 @@ import {
   closeSync,
   createReadStream,
   existsSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -680,6 +681,29 @@ function parseSessionEntryLine(line: string): FileEntry | null {
 }
 
 /** Exported for testing */
+/**
+ * Ensure the session file ends with a newline. A file that lost its final
+ * newline (truncated write, crash, external editor) would otherwise have the
+ * next appended entry glued onto its last line, silently corrupting that
+ * entry on the next load (pi #8345).
+ *
+ * Exported for testing.
+ */
+export function ensureTrailingNewline(filePath: string): void {
+  const fd = openSync(filePath, 'r');
+  try {
+    const { size } = fstatSync(fd);
+    if (size === 0) return;
+    const last = Buffer.alloc(1);
+    const bytesRead = readSync(fd, last, 0, 1, size - 1);
+    if (bytesRead === 1 && last[0] !== 0x0a) {
+      appendFileSync(filePath, '\n');
+    }
+  } finally {
+    closeSync(fd);
+  }
+}
+
 export function loadEntriesFromFile(filePath: string): FileEntry[] {
   const resolvedFilePath = normalizePath(filePath);
   if (!existsSync(resolvedFilePath)) return [];
@@ -985,6 +1009,7 @@ export class SessionManager {
     this.sessionFile = resolvePath(sessionFile);
     if (existsSync(this.sessionFile)) {
       this.fileEntries = loadEntriesFromFile(this.sessionFile);
+      ensureTrailingNewline(this.sessionFile);
       if (this.fileEntries.length === 0) {
         const explicitPath = this.sessionFile;
         if (statSync(explicitPath).size > 0) {

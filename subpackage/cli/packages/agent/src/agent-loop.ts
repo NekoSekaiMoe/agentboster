@@ -242,6 +242,17 @@ async function runLoop(
         return;
       }
 
+      // Mid-run context management point: compact before the next assistant
+      // request when this turn's tool results pushed the context over the
+      // compaction threshold (pi #6879).
+      if (hasMoreToolCalls && config.beforeNextAssistantRequest) {
+        await config.beforeNextAssistantRequest({
+          context: currentContext,
+          lastAssistantMessage: message,
+          toolResults,
+        });
+      }
+
       pendingMessages = (await config.getSteeringMessages?.()) || [];
     }
 
