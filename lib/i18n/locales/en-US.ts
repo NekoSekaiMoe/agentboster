@@ -36,6 +36,7 @@ export const enUS = {
   'chat.modelPicker.search': 'Search models…',
   'chat.modelPicker.noResults': 'No matching models',
   'chat.newChat': 'New Chat',
+  'chat.recent': 'Recent',
   'chat.newConversation': 'New conversation',
   'chat.session.manageOnlyHint':
     'Private session created by another member — you can manage it here, but cannot open the conversation.',

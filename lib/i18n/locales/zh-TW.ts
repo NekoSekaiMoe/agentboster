@@ -36,6 +36,7 @@ export const zhTW = {
   'chat.modelPicker.search': '搜尋模型…',
   'chat.modelPicker.noResults': '沒有符合的模型',
   'chat.newChat': '新增對話',
+  'chat.recent': '最近',
   'chat.newConversation': '新對話',
   'chat.session.manageOnlyHint':
     '其他成員建立的私密會話——您可以在此處管理它，但無法開啟對話內容。',

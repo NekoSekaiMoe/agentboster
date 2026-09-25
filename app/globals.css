@@ -27,6 +27,34 @@
     100% { transform: translateX(400%); }
 }
 
+/* Gemini-style ambient gradient for the chat surface: a soft blue wash
+   bleeding in from the top (mobile screenshot) plus a faint blue/pink
+   blob anchored mid-viewport (desktop screenshot). Sits behind messages
+   via an absolutely positioned, pointer-events-none layer. */
+@layer utilities {
+    .gemini-surface {
+        background-image:
+            radial-gradient(120% 60% at 50% -10%, hsl(213 94% 82% / 0.55) 0%, transparent 60%),
+            radial-gradient(60% 45% at 62% 55%, hsl(214 95% 88% / 0.5) 0%, transparent 70%),
+            radial-gradient(45% 35% at 38% 68%, hsl(290 60% 90% / 0.35) 0%, transparent 70%);
+    }
+
+    .dark .gemini-surface {
+        background-image:
+            radial-gradient(120% 60% at 50% -10%, hsl(217 70% 30% / 0.35) 0%, transparent 60%),
+            radial-gradient(60% 45% at 62% 55%, hsl(222 60% 22% / 0.4) 0%, transparent 70%),
+            radial-gradient(45% 35% at 38% 68%, hsl(280 40% 22% / 0.25) 0%, transparent 70%);
+    }
+
+    /* Gemini greeting headline gradient (blue → purple → red hint). */
+    .gemini-gradient-text {
+        background-image: linear-gradient(74deg, hsl(217 90% 60%) 0%, hsl(266 85% 66%) 45%, hsl(339 80% 62%) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

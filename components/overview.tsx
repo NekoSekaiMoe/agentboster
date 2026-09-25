@@ -1,4 +1,3 @@
-import { Logo } from '@/components/logo';
 import { useI18n } from '@/components/i18n-provider';
 import { motion } from 'framer-motion';
 import { useEffect, useState, useMemo } from 'react';
@@ -80,17 +79,15 @@ export const Overview = ({
       exit={{ opacity: 0, scale: 0.98 }}
       transition={{ delay: 0.2 }}
     >
-      <div className="flex flex-col items-center gap-6 text-center">
-        <div className="flex items-center justify-center rounded-2xl p-4 text-primary opacity-80">
-          <Logo width={64} height={64} />
-        </div>
-        <div className="min-h-24 max-w-md px-4">
-          <p className="whitespace-pre-line text-muted-foreground text-sm leading-relaxed tracking-wide md:text-base">
+      <div className="flex flex-col items-center gap-5 text-center">
+        {/* Gemini-style gradient headline — content stays the random poem */}
+        <div className="min-h-24 max-w-2xl px-4">
+          <h1 className="gemini-gradient-text whitespace-pre-line font-medium text-2xl leading-relaxed tracking-wide md:text-3xl">
             {displayedText}
             {!hasPlayedTypewriter && displayedText.length < poem.length && (
-              <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-muted-foreground align-middle" />
+              <span className="ml-1 inline-block h-5 w-1 animate-pulse bg-muted-foreground align-middle" />
             )}
-          </p>
+          </h1>
         </div>
       </div>
     </motion.div>

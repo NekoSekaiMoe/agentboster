@@ -1072,6 +1072,11 @@ export function Chat({
           ref={layoutRef}
           className="relative flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background"
         >
+          {/* Gemini-style ambient gradient wash behind the chat surface. */}
+          <div
+            aria-hidden
+            className="gemini-surface pointer-events-none absolute inset-0"
+          />
           <ChatHeader
             allowedModels={allowedModels}
             onSelectModel={setSelectedModel}

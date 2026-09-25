@@ -45,10 +45,10 @@ import {
   Moon,
   Pin,
   PinOff,
-  Plus,
   Search,
   Send,
   Settings,
+  SquarePen,
   Sun,
   Terminal,
   Trash2,
@@ -235,30 +235,31 @@ export function ChatSidebar() {
   return (
     <>
       <Sidebar className="border-r-0">
-        {/* Header */}
-        <SidebarHeader className="border-sidebar-border border-b p-3">
+        {/* Header — Gemini-style: app wordmark + rounded-full new-chat row */}
+        <SidebarHeader className="p-3 pb-1">
           {isMobile && (
-            <div className="mb-2 flex min-h-[36px] items-center">
+            <div className="mb-2 flex min-h-[36px] items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-lg"
+                className="h-10 w-10 rounded-full"
                 aria-label={t('common.openNavigation')}
                 onClick={() => setOpenMobile(false)}
               >
                 <ChevronLeft className="h-5 w-5" />
               </Button>
+              <span className="font-medium text-lg">AgentBoster</span>
             </div>
           )}
 
           <Button
             variant="secondary"
-            className={`w-full justify-start rounded-xl font-medium ${
+            className={`h-11 w-full justify-start rounded-full bg-sidebar-accent/70 font-medium text-sidebar-accent-foreground shadow-none hover:bg-sidebar-accent ${
               isCollapsed ? 'justify-center px-0' : ''
             }`}
             onClick={handleNewChat}
           >
-            <Plus className={`h-5 w-5 ${!isCollapsed && 'mr-2'}`} />
+            <SquarePen className={`h-4 w-4 ${!isCollapsed && 'mr-2'}`} />
             {!isCollapsed && t('chat.newChat')}
           </Button>
         </SidebarHeader>
@@ -267,14 +268,14 @@ export function ChatSidebar() {
         <SidebarContent className="px-3 py-3">
           {!isCollapsed && (
             <div className="flex-1 space-y-1">
-              {/* Search input */}
-              <div className="relative mb-2">
-                <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              {/* Search input — Gemini-style pill */}
+              <div className="relative mb-1">
+                <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={t('chat.searchSessions') ?? 'Search sessions…'}
-                  className="h-8 pr-7 pl-8 text-sm"
+                  className="h-9 rounded-full border-transparent bg-sidebar-accent/50 pr-7 pl-9 text-sm shadow-none focus-visible:bg-sidebar-accent/70"
                 />
                 {(searching || searchQuery) && (
                   <button
@@ -294,6 +295,13 @@ export function ChatSidebar() {
                 )}
               </div>
 
+              {/* "Recent" section label, Gemini-style */}
+              {!searchQuery && visibleSessions.length > 0 && (
+                <div className="px-3 pt-3 pb-1 font-medium text-muted-foreground text-xs">
+                  {t('chat.recent')}
+                </div>
+              )}
+
               {loadingSessions ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -312,7 +320,7 @@ export function ChatSidebar() {
                       key={session.id}
                       role="button"
                       tabIndex={0}
-                      className={`group relative flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+                      className={`group relative flex cursor-pointer items-center gap-2 rounded-full px-3 py-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
                         currentSessionId === session.id
                           ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                           : ''
@@ -381,11 +389,11 @@ export function ChatSidebar() {
         </SidebarContent>
 
         {/* Footer */}
-        <SidebarFooter className="border-sidebar-border border-t p-3">
+        <SidebarFooter className="p-3">
           <div className="relative">
             <Button
               variant="ghost"
-              className={`w-full justify-start rounded-xl font-medium ${
+              className={`w-full justify-start rounded-full font-medium ${
                 isCollapsed ? 'justify-center px-0' : ''
               }`}
               onClick={() => setSettingsMenuOpen(!settingsMenuOpen)}
@@ -402,7 +410,7 @@ export function ChatSidebar() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.98 }}
                   transition={{ duration: 0.16, ease: 'easeOut' }}
-                  className="absolute right-0 bottom-full left-0 z-50 mb-2 rounded-xl border bg-popover p-2 shadow-lg"
+                  className="absolute right-0 bottom-full left-0 z-50 mb-2 rounded-2xl border bg-popover p-2 shadow-lg"
                 >
                   <div className="mb-2 px-2 font-medium text-muted-foreground text-xs">
                     {t('chat.theme')}

@@ -38,6 +38,7 @@ export const ja = {
   'chat.modelPicker.search': 'モデルを検索…',
   'chat.modelPicker.noResults': '一致するモデルがありません',
   'chat.newChat': '新規チャット',
+  'chat.recent': '最近',
   'chat.newConversation': '新しい会話',
   'chat.session.manageOnlyHint':
     '他のメンバーが作成したプライベートセッションです。ここで管理できますが、会話は開けません。',

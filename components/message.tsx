@@ -1043,7 +1043,7 @@ const PurePreviewMessage = ({
                     <TooltipContent>Edit message</TooltipContent>
                   </Tooltip>
 
-                  <div className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden rounded-2xl bg-[#e7ecf5] px-4 py-2.5 text-foreground shadow-none dark:bg-muted">
+                  <div className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden rounded-3xl bg-[#d3e3fd] px-4 py-2.5 text-foreground shadow-none dark:bg-[#1f3760]">
                     <AttachmentList attachments={attachments} />
                     {textContent ? (
                       <div className="min-w-0 break-words">
@@ -1136,18 +1136,16 @@ export const ThinkingMessage = () => {
       animate={{ y: 0, opacity: 1, transition: { delay: 1 } }}
       data-role={role}
     >
-      <div
-        className={cn(
-          'flex w-full min-w-0 gap-4 rounded-xl group-data-[role=user]/message:ml-auto group-data-[role=user]/message:w-fit group-data-[role=user]/message:max-w-2xl group-data-[role=user]/message:px-3 group-data-[role=user]/message:py-2',
-          {
-            'group-data-[role=user]/message:bg-muted': true,
-          },
-        )}
-      >
-        <div className="flex w-full min-w-0 flex-col gap-2">
-          <div className="flex flex-col gap-4 text-muted-foreground">
-            Thinking...
-          </div>
+      <div className="flex w-full min-w-0 gap-4">
+        {/* Gemini-style three-dot breathing indicator */}
+        <div className="flex items-center gap-1.5 px-1 py-2">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="size-2 animate-pulse rounded-full bg-foreground/70"
+              style={{ animationDelay: `${i * 180}ms` }}
+            />
+          ))}
         </div>
       </div>
     </motion.div>

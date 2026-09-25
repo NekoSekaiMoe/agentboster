@@ -26,7 +26,7 @@ function PureChatHeader({
   onSelectAgent: (agent: string | null) => void;
 }) {
   return (
-    <header className="sticky top-0 z-20 flex items-center gap-1 border-b bg-background/95 py-2 pr-4 pl-14 backdrop-blur md:px-4">
+    <header className="sticky top-0 z-20 flex items-center gap-1 bg-gradient-to-b from-background/90 via-background/50 to-transparent py-2 pr-4 pl-14 md:px-4">
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <ModelPersonaPicker
           allowedModels={allowedModels}

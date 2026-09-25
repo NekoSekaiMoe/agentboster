@@ -38,6 +38,7 @@ export const ko = {
   'chat.modelPicker.search': '모델 검색…',
   'chat.modelPicker.noResults': '일치하는 모델이 없습니다',
   'chat.newChat': '새 채팅',
+  'chat.recent': '최근',
   'chat.newConversation': '새 대화',
   'chat.session.manageOnlyHint':
     '다른 멤버가 만든 비공개 세션입니다. 여기에서 관리할 수 있지만 대화는 열 수 없습니다.',

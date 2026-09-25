@@ -35,6 +35,7 @@ export const zhCN = {
   'chat.modelPicker.search': '搜索模型…',
   'chat.modelPicker.noResults': '没有符合的模型',
   'chat.newChat': '新建对话',
+  'chat.recent': '最近',
   'chat.newConversation': '新对话',
   'chat.session.manageOnlyHint':
     '其他成员创建的私密会话——您可以在此处管理它，但无法打开对话内容。',
