@@ -144,7 +144,17 @@ interface PackageJson {
 import { readFileSync } from 'fs';
 
 const packageJsonPath = join(getPackageDir(), 'package.json');
-const packageJsonInline = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+let packageJsonInline: unknown;
+try {
+  packageJsonInline = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+} catch {
+  // Self-contained tarballs or single-file bundle copies may not ship a
+  // package.json next to the entry (ENOENT) — fall back to inert defaults
+  // instead of crashing at startup. `yarn package` stamps a minimal
+  // package.json into the tarball so APP_NAME/VERSION stay real; exotic
+  // layouts can set PI_PACKAGE_DIR to point at one.
+  packageJsonInline = {};
+}
 
 const pkg: PackageJson = packageJsonInline as PackageJson;
 

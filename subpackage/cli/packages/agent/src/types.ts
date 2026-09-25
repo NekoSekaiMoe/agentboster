@@ -116,17 +116,20 @@ export interface AfterToolCallContext {
   context: AgentContext;
 }
 
-/** Context passed to `shouldStopAfterTurn`. */
-export interface ShouldStopAfterTurnContext {
+/** The completed turn passed to `finishTurn`. */
+export interface CompletedTurn {
   /** The assistant message that completed the turn. */
   message: AssistantMessage;
-  /** Tool result messages passed to the preceding `turn_end` event. */
+  /** Tool result messages that will be passed to the following `turn_end` event. */
   toolResults: ToolResultMessage[];
   /** Current agent context after the turn's assistant message and tool results have been appended. */
   context: AgentContext;
   /** Messages that this loop invocation will return if it exits at this point. Prompt runs include the initial prompt messages; continuation runs do not include pre-existing context messages. */
   newMessages: AgentMessage[];
 }
+
+/** `finishTurn` decision. `"end"` exits after the following `turn_end`; `"continue"` schedules one more request when nothing else would. */
+export type FinishTurnDecision = { action: 'end' } | { action: 'continue' };
 
 export interface AgentLoopConfig extends SimpleStreamOptions {
   model: Model<any>;
@@ -185,6 +188,19 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
   ) => Promise<AgentMessage[]>;
 
   /**
+   * Runs after `transformContext` with the full request picture: the
+   * (already transformed) conversation and the system prompt that will be
+   * sent. Can replace either; the result is used verbatim.
+   *
+   * Contract: must not throw or reject. Return the inputs unchanged instead.
+   */
+  transformContextWithSystem?: (
+    messages: AgentMessage[],
+    systemPrompt: string,
+    signal?: AbortSignal,
+  ) => Promise<{ messages: AgentMessage[]; systemPrompt: string }>;
+
+  /**
    * Resolves an API key dynamically for each LLM call.
    *
    * Useful for short-lived OAuth tokens (e.g., GitHub Copilot) that may expire
@@ -197,22 +213,32 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
   ) => Promise<string | undefined> | string | undefined;
 
   /**
-   * Called after each turn fully completes and `turn_end` has been emitted.
+   * Called after the current assistant turn finishes executing its tool
+   * calls, before `turn_end` is emitted; the returned decision is applied
+   * after that event (pi 0.87.0 `finishTurn`, replacing
+   * `shouldStopAfterTurn`).
    *
-   * If it returns true, the loop emits `agent_end` and exits before polling steering or follow-up queues,
-   * without starting another LLM call. The current assistant response and any tool executions finish normally.
+   * - Return `{ action: "end" }` to emit `agent_end` and exit before polling
+   *   steering or follow-up queues, without starting another LLM call. The
+   *   current assistant response and any tool executions finish normally.
+   * - Return `{ action: "continue" }` to schedule one more request when
+   *   nothing else (tool calls, steering, follow-ups) would.
+   * - Return `undefined` to preserve normal scheduling.
    *
-   * Use this to request a graceful stop after the current turn, e.g. before context gets too full.
+   * Unlike the old `shouldStopAfterTurn`, this hook also receives error and
+   * aborted responses; those remain hard exits regardless of the decision.
+   * Migrate boolean predicates by returning `undefined` for those.
    *
    * Contract: must not throw or reject. Throwing interrupts the low-level agent loop without producing a normal event sequence.
    */
-  shouldStopAfterTurn?: (
-    context: ShouldStopAfterTurnContext,
-  ) => boolean | Promise<boolean>;
+  finishTurn?: (
+    turn: CompletedTurn,
+    signal?: AbortSignal,
+  ) => FinishTurnDecision | undefined | Promise<FinishTurnDecision | undefined>;
 
   /**
    * Called between tool execution and the next assistant request in the same
-   * run — after `turn_end` and the `shouldStopAfterTurn` check, before
+   * run — after `turn_end` and the `finishTurn` decision, before
    * steering messages are polled.
    *
    * Use this to compact the context mid-run when a large tool result pushed it
@@ -240,7 +266,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
   /**
    * Returns steering messages to inject into the conversation mid-run.
    *
-   * Called after the current assistant turn finishes executing its tool calls, unless `shouldStopAfterTurn` exits first.
+   * Called after the current assistant turn finishes executing its tool calls, unless `finishTurn` ends the run.
    * If messages are returned, they are added to the context before the next LLM call.
    * Tool calls from the current assistant message are not skipped.
    *

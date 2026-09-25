@@ -114,6 +114,13 @@ export function parseArgs(args: string[]): Args {
       const mode = args[++i];
       if (mode === 'text' || mode === 'json' || mode === 'rpc') {
         result.mode = mode;
+      } else {
+        // Invalid values must fail loudly instead of silently falling back to
+        // text mode (pi #9045).
+        result.diagnostics.push({
+          type: 'error',
+          message: `Invalid mode "${mode}". Valid values: text, json, rpc`,
+        });
       }
     } else if (arg === '--backend-url' && i + 1 < args.length) {
       result.backendUrl = args[++i];

@@ -145,6 +145,21 @@ function errorMessage(text: string): AssistantMessage {
   return msg;
 }
 
+/**
+ * Extract the human-readable text from an error chunk.
+ *
+ * AI SDK UIMessage stream error parts carry the provider error text in
+ * `errorText` ("{\"type\":\"error\",\"errorText\":\"...\"}"); the workflow's
+ * DurableAgent writes the original provider error message there verbatim.
+ * `message` is kept as a fallback for any legacy producer that still uses it.
+ * Without this mapping every stream-internal provider error degrades to
+ * "unknown error" and the CLI's overflow/retry classification never fires.
+ */
+export function extractErrorChunkText(chunk: WebStreamChunk): string {
+  const raw = chunk.errorText ?? chunk.message;
+  return typeof raw === 'string' && raw.length > 0 ? raw : 'unknown error';
+}
+
 export function openAgentbosterStream(
   _model: Model<Api>,
   context: Context,
@@ -581,8 +596,7 @@ function handleChunk(
     }
 
     case 'error': {
-      const message =
-        typeof chunk.message === 'string' ? chunk.message : 'unknown error';
+      const message = extractErrorChunkText(chunk);
       stream.push({
         type: 'error',
         reason: 'error',

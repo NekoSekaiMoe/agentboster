@@ -15,7 +15,6 @@ import * as _bundledPiAiCompat from '@agentboster-cli/ai/compat';
 const _bundledPiAiOauth = _bundledPiAiCompat;
 import type { KeyId } from '@agentboster-cli/tui';
 import * as _bundledPiTui from '@agentboster-cli/tui';
-import { createJiti } from 'jiti/static';
 // Static imports of packages that extensions may use.
 // These MUST be static so Bun bundles them into the compiled binary.
 // The virtualModules option then makes them available to extensions.
@@ -276,15 +275,40 @@ function createExtensionAPI(
 ): ExtensionAPI {
   const api = {
     // Registration methods - write to extension
-    on(event: string, handler: HandlerFn): void {
+    on(event: string, handler: HandlerFn): () => void {
       runtime.assertActive();
       const list = extension.handlers.get(event) ?? [];
       list.push(handler);
       extension.handlers.set(event, list);
+      // Return an unsubscribe function (pi #8967). Handlers removed during a
+      // dispatch stop applying from the next dispatch on; in-flight
+      // dispatches iterate over a snapshot.
+      let unsubscribed = false;
+      return () => {
+        if (unsubscribed) return;
+        unsubscribed = true;
+        const current = extension.handlers.get(event);
+        if (!current) return;
+        const index = current.indexOf(handler);
+        if (index !== -1) current.splice(index, 1);
+        if (current.length === 0) extension.handlers.delete(event);
+      };
     },
 
     registerTool(tool: ToolDefinition): void {
       runtime.assertActive();
+      // Reject tools without a usable parameter schema at registration time
+      // (pi #9300) instead of letting them break provider requests later.
+      const parameters = tool.parameters as unknown;
+      if (
+        typeof parameters !== 'object' ||
+        parameters === null ||
+        (parameters as { type?: unknown }).type !== 'object'
+      ) {
+        throw new Error(
+          `Tool "${tool.name}" must define an object parameter schema`,
+        );
+      }
       extension.tools.set(tool.name, {
         definition: tool,
         sourceInfo: extension.sourceInfo,
@@ -471,6 +495,12 @@ async function loadExtensionModule(
     }
   }
 
+  // Defer loading the extension compiler until a filesystem extension is
+  // actually loaded (pi #9540): sessions without extensions skip jiti's
+  // module evaluation entirely. Dynamic import keeps the module bundled
+  // (esbuild inlines it; Bun --compile embeds dynamic imports) while
+  // avoiding the baseline import cost.
+  const { createJiti } = await import('jiti/static');
   const jiti = createJiti(import.meta.url, {
     moduleCache: false,
     // In Bun binary: use virtualModules for bundled packages (no filesystem resolution)

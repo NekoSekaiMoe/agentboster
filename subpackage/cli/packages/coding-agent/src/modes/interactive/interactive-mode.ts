@@ -7,6 +7,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { join } from 'node:path';
 import type { AgentMessage, ThinkingLevel } from '@agentboster-cli/agent';
 import {
   clearStoredAuth,
@@ -72,6 +73,17 @@ import {
   type AgentSessionEvent,
   parseSkillBlock,
 } from '../../core/agent-session.ts';
+import {
+  BUG_REPORT_CUSTOM_ENTRY_TYPE,
+  type BugReportBundle,
+  bugReportArchiveFileName,
+  bugReportExportDir,
+  collectBugReportDiagnostics,
+  collectBugReportMetadata,
+  generateBugReportSummary,
+  writeBugReportArchive,
+} from '../../core/bug-report.ts';
+import { readCrashLog } from '../../core/crash-log.ts';
 import {
   type AgentSessionRuntime,
   SessionImportFileNotFoundError,
@@ -1998,6 +2010,8 @@ export class InteractiveMode {
           }
         })();
       },
+      appendContextEdit: (targetId, replacement) =>
+        this.session.appendContextEdit(targetId, replacement),
       getSystemPrompt: () => this.session.systemPrompt,
     });
 
@@ -3014,7 +3028,10 @@ export class InteractiveMode {
           // as missed so the user knows to drag them in. Startup
           // `@img.png` continues to handle images via the dedicated
           // processFileArguments path.
-          { inlineImageHandling: 'skip' },
+          {
+            inlineImageHandling: 'skip',
+            imageResize: this.session.model?.inputLimits?.images?.resize,
+          },
         );
         if (expanded.missedTokens.length > 0) {
           this.showWarning(
@@ -3074,6 +3091,11 @@ export class InteractiveMode {
     }
     if (text === '/export' || text.startsWith('/export ')) {
       await this.handleExportCommand(text);
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/bug' || text.startsWith('/bug ')) {
+      await this.handleBugCommand(text.slice(4).trim());
       this.editor.setText('');
       return;
     }
@@ -5529,6 +5551,21 @@ export class InteractiveMode {
             }
           }
 
+          // The user committed to navigating: stop the active response first.
+          if (this.session.isStreaming) {
+            this.restoreQueuedMessagesToEditor({ abort: true });
+            await this.session.abort();
+          }
+          // Recheck after the dialogs and streaming abort, before replacing
+          // another operation's UI (pi #9179): tree navigation must not race
+          // an active compaction and clobber its progress UI.
+          if (this.session.isCompacting) {
+            this.showError(
+              'Wait for the current compaction or tree navigation to finish before navigating the session tree.',
+            );
+            return;
+          }
+
           // Set up escape handler and loader if summarizing
           let summaryLoader: Loader | undefined;
           const originalOnEscape = this.defaultEditor.onEscape;
@@ -5940,6 +5977,106 @@ export class InteractiveMode {
       }
       this.showError(
         `Reload failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * /bug [description] — export a redacted diagnostics archive (pi 0.86.0).
+   * The thin-client CLI exports a local zip instead of uploading.
+   */
+  private async handleBugCommand(hint: string): Promise<void> {
+    try {
+      const choice = await this.showExtensionSelector(
+        'Bug report — what should be included?',
+        [
+          'Diagnostics only (no transcript)',
+          'Include full transcript',
+          'Model-written summary (no transcript)',
+          'Cancel',
+        ],
+      );
+      if (choice === undefined || choice === 'Cancel') {
+        this.showStatus('Bug report cancelled');
+        return;
+      }
+      const includeSession = choice === 'Include full transcript';
+      const includeSummary = choice === 'Model-written summary (no transcript)';
+
+      const runner = this.session.extensionRunner;
+      const extensions = runner.getLoadedExtensions();
+      const model = this.session.model;
+      const auth = model
+        ? await this.session.modelRegistry.getApiKeyAndHeaders(model)
+        : { ok: false as const, error: 'no model' };
+
+      const metadata = collectBugReportMetadata({
+        hint,
+        model,
+        sessionId: this.sessionManager.getSessionId(),
+        cwd: this.sessionManager.getCwd(),
+        extensions,
+        extensionErrors: [],
+        globalSettings: this.settingsManager.getGlobalSettings(),
+        projectSettings: this.settingsManager.getProjectSettings(),
+        includeSession,
+        includeSummary,
+        messageCount: this.sessionManager
+          .getEntries()
+          .filter((entry) => entry.type === 'message').length,
+        thinkingLevel: this.session.thinkingLevel,
+      });
+      const diagnostics = collectBugReportDiagnostics(
+        this.sessionManager,
+        readCrashLog(),
+      );
+
+      let summary: string | undefined;
+      if (includeSummary && model && auth.ok) {
+        summary = await generateBugReportSummary({
+          model,
+          messages: this.sessionManager.buildSessionContext().messages,
+          hint,
+          apiKey: auth.apiKey,
+          headers: auth.headers,
+          env: auth.env,
+          streamFn: this.session.agent.streamFn,
+        });
+      }
+
+      let sessionJsonl: string | undefined;
+      if (includeSession) {
+        try {
+          const sessionFile = this.sessionManager.getSessionFile();
+          sessionJsonl = sessionFile
+            ? fs.readFileSync(sessionFile, 'utf8')
+            : undefined;
+        } catch {
+          sessionJsonl = undefined;
+        }
+      }
+
+      const bundle: BugReportBundle = {
+        metadata,
+        diagnostics,
+        ...(sessionJsonl !== undefined ? { sessionJsonl } : {}),
+        ...(summary !== undefined ? { summary } : {}),
+      };
+      const id = metadata.id as string;
+      const outputPath = join(
+        bugReportExportDir(),
+        bugReportArchiveFileName(id),
+      );
+      await writeBugReportArchive(bundle, outputPath);
+      // Record the report in the session (pi.bug-report entry equivalent).
+      this.sessionManager.appendCustomEntry(BUG_REPORT_CUSTOM_ENTRY_TYPE, {
+        id,
+        path: outputPath,
+      });
+      this.showStatus(`Bug report exported: ${outputPath}`);
+    } catch (error) {
+      this.showError(
+        `Bug report failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -6359,13 +6496,26 @@ export class InteractiveMode {
   ): Promise<void> {
     const extensionRunner = this.session.extensionRunner;
 
-    // Emit user_bash event to let extensions intercept
-    const eventResult = await extensionRunner.emitUserBash({
-      type: 'user_bash',
-      command,
-      excludeFromContext,
-      cwd: this.sessionManager.getCwd(),
-    });
+    // Emit user_bash event to let extensions intercept.
+    // Fail closed (pi 0.86.0): an erroring or invalid handler aborts the
+    // command instead of falling through to local execution.
+    let eventResult: Awaited<ReturnType<typeof extensionRunner.emitUserBash>>;
+    try {
+      eventResult = await extensionRunner.emitUserBash({
+        type: 'user_bash',
+        command,
+        excludeFromContext,
+        cwd: this.sessionManager.getCwd(),
+      });
+    } catch {
+      // The extension runner already emitted the error details; show a
+      // short notice and do not execute the command.
+      this.chatContainer.addChild(
+        new Text('Command aborted: user_bash extension failed.', 0, 0),
+      );
+      this.ui.requestRender();
+      return;
+    }
 
     // If extension returned a full result, use it directly
     if (eventResult?.result) {

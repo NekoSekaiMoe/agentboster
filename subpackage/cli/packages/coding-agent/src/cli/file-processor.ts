@@ -8,6 +8,7 @@ import chalk from 'chalk';
 import { resolve } from 'path';
 import { resolveReadPath } from '../core/tools/path-utils.ts';
 import { processImage } from '../utils/image-process.ts';
+import type { ImageResizeOptions } from '../utils/image-resize-core.ts';
 import { detectSupportedImageMimeTypeFromFile } from '../utils/mime.ts';
 
 export interface ProcessedFiles {
@@ -18,6 +19,8 @@ export interface ProcessedFiles {
 export interface ProcessFileOptions {
   /** Whether to auto-resize images to 2000x2000 max. Default: true */
   autoResizeImages?: boolean;
+  /** Per-model image resize profile (pi 0.87.0 `inputLimits.images.resize`). */
+  imageResize?: ImageResizeOptions;
 }
 
 /** Process @file arguments into text content and image attachments */
@@ -55,6 +58,7 @@ export async function processFileArguments(
       const content = await readFile(absolutePath);
       const processed = await processImage(content, mimeType, {
         autoResizeImages,
+        resizeOptions: options?.imageResize,
       });
 
       if (!processed.ok) {
@@ -245,6 +249,7 @@ export async function expandInlineAtMentions(
       const content = await readFile(absolutePath);
       const processed = await processImage(content, mimeType, {
         autoResizeImages,
+        resizeOptions: options?.imageResize,
       });
       if (!processed.ok) {
         spans.push({

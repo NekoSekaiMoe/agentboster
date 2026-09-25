@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, extname, join, resolve } from 'node:path';
 import { resolvePath } from '../utils/paths.ts';
 import type { AgentSession } from './agent-session.ts';
 import type {
@@ -464,7 +464,23 @@ export class AgentSessionRuntime {
       mkdirSync(sessionDir, { recursive: true });
     }
 
-    const destinationPath = join(sessionDir, basename(resolvedPath));
+    // Never overwrite an existing session with the same filename (pi #8985):
+    // pick the first free `<name>-import<N>.jsonl` variant instead.
+    let destinationPath = join(sessionDir, basename(resolvedPath));
+    if (
+      resolve(destinationPath) !== resolvedPath &&
+      existsSync(destinationPath)
+    ) {
+      const ext = extname(destinationPath);
+      const stem = basename(destinationPath, ext);
+      let counter = 1;
+      let candidate = join(sessionDir, `${stem}-import${counter}${ext}`);
+      while (existsSync(candidate)) {
+        counter++;
+        candidate = join(sessionDir, `${stem}-import${counter}${ext}`);
+      }
+      destinationPath = candidate;
+    }
     const beforeResult = await this.emitBeforeSwitch('resume', destinationPath);
     if (beforeResult.cancelled) {
       return beforeResult;

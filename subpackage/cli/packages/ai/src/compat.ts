@@ -17,6 +17,8 @@ import type {
   SimpleStreamOptions,
   ThinkingLevel,
 } from './index.ts';
+import { isContextOverflow as isContextOverflowImpl } from './utils/overflow.ts';
+import { isRetryableAssistantError as isRetryableAssistantErrorImpl } from './utils/retry.ts';
 
 export * from './index.ts';
 
@@ -58,14 +60,14 @@ export function validateToolArguments(_tool: unknown, call: unknown): unknown {
 export function cleanupSessionResources(_sessionId?: string): void {}
 
 export function isContextOverflow(
-  _message: AssistantMessage,
-  _contextWindow: number,
+  message: AssistantMessage,
+  contextWindow?: number,
 ): boolean {
-  return false;
+  return isContextOverflowImpl(message, contextWindow);
 }
 
-export function isRetryableAssistantError(_message: AssistantMessage): boolean {
-  return false;
+export function isRetryableAssistantError(message: AssistantMessage): boolean {
+  return isRetryableAssistantErrorImpl(message);
 }
 
 export function getSupportedThinkingLevels(

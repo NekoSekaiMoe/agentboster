@@ -168,8 +168,10 @@ async function runLoop(
     (await config.getSteeringMessages?.()) || [];
 
   // Outer loop: continues when queued follow-up messages arrive after agent would stop
+  let explicitContinuation = false;
   while (true) {
     let hasMoreToolCalls = true;
+    explicitContinuation = false;
 
     // Inner loop: process tool calls and steering messages
     while (hasMoreToolCalls || pendingMessages.length > 0) {
@@ -201,6 +203,17 @@ async function runLoop(
       newMessages.push(message);
 
       if (message.stopReason === 'error' || message.stopReason === 'aborted') {
+        // finishTurn also receives error and aborted responses (pi 0.87.0);
+        // they remain hard exits regardless of the returned decision.
+        await config.finishTurn?.(
+          {
+            message,
+            toolResults: [],
+            context: currentContext,
+            newMessages,
+          },
+          signal,
+        );
         await emit({ type: 'turn_end', message, toolResults: [] });
         await emit({ type: 'agent_end', messages: newMessages });
         return;
@@ -228,19 +241,22 @@ async function runLoop(
         }
       }
 
-      await emit({ type: 'turn_end', message, toolResults });
-
-      if (
-        await config.shouldStopAfterTurn?.({
+      // The hook runs before `turn_end`; its decision applies after the event.
+      const decision = await config.finishTurn?.(
+        {
           message,
           toolResults,
           context: currentContext,
           newMessages,
-        })
-      ) {
+        },
+        signal,
+      );
+      await emit({ type: 'turn_end', message, toolResults });
+      if (decision?.action === 'end') {
         await emit({ type: 'agent_end', messages: newMessages });
         return;
       }
+      explicitContinuation = decision?.action === 'continue';
 
       // Mid-run context management point: compact before the next assistant
       // request when this turn's tool results pushed the context over the
@@ -254,13 +270,23 @@ async function runLoop(
       }
 
       pendingMessages = (await config.getSteeringMessages?.()) || [];
+      if (hasMoreToolCalls || pendingMessages.length > 0) {
+        explicitContinuation = false;
+      }
     }
 
     // Agent would stop here. Check for follow-up messages.
     const followUpMessages = (await config.getFollowUpMessages?.()) || [];
     if (followUpMessages.length > 0) {
       // Set as pending so inner loop processes them
+      explicitContinuation = false;
       pendingMessages = followUpMessages;
+      continue;
+    }
+    // No natural request was selected, so fulfill a `finishTurn`
+    // `"continue"` decision with one context-only turn.
+    if (explicitContinuation) {
+      explicitContinuation = false;
       continue;
     }
 
@@ -288,12 +314,23 @@ async function streamAssistantResponse(
     messages = await config.transformContext(messages, signal);
   }
 
+  let systemPrompt = context.systemPrompt;
+  if (config.transformContextWithSystem) {
+    const transformed = await config.transformContextWithSystem(
+      messages,
+      systemPrompt,
+      signal,
+    );
+    messages = transformed.messages;
+    systemPrompt = transformed.systemPrompt;
+  }
+
   // Convert to LLM-compatible messages (AgentMessage[] → Message[])
   const llmMessages = await config.convertToLlm(messages);
 
   // Build LLM context
   const llmContext: Context = {
-    systemPrompt: context.systemPrompt,
+    systemPrompt,
     messages: llmMessages,
     tools: context.tools,
   };

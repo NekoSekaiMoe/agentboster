@@ -367,6 +367,8 @@ export function createReadToolDefinition(
               const buffer = await ops.readFile(absolutePath);
               const processed = await processImage(buffer, mimeType, {
                 autoResizeImages,
+                // Per-model cache-safe resize profile (pi 0.87.0).
+                resizeOptions: ctx?.model?.inputLimits?.images?.resize,
               });
               if (!processed.ok) {
                 let textNote = `Read image file [${mimeType}]\n${processed.message}`;

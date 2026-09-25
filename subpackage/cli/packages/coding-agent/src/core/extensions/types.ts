@@ -385,6 +385,15 @@ export interface ExtensionContext {
   getContextUsage(): ContextUsage | undefined;
   /** Trigger compaction without awaiting completion. */
   compact(options?: CompactOptions): void;
+  /**
+   * Append a model-context edit (pi 0.87.0): omit the target entry from
+   * future provider context with a null replacement, or replace its content,
+   * without rewriting raw or UI history. Returns the new entry id.
+   */
+  appendContextEdit(
+    targetId: string,
+    replacement: string | (TextContent | ImageContent)[] | null,
+  ): string;
   /** Get the current effective system prompt. */
   getSystemPrompt(): string;
 }
@@ -745,6 +754,17 @@ export interface ContextEvent {
   messages: AgentMessage[];
 }
 
+/**
+ * Fired before each LLM call after all `context` handlers, with the full
+ * request picture: the conversation and the system prompt that will be sent.
+ * Handlers can replace either; the result is used verbatim.
+ */
+export interface ContextWithSystemEvent {
+  type: 'context_with_system';
+  messages: AgentMessage[];
+  systemPrompt: string;
+}
+
 /** Fired before a provider request is sent. Can replace the payload. */
 export interface BeforeProviderRequestEvent {
   type: 'before_provider_request';
@@ -780,6 +800,16 @@ export interface AgentStartEvent {
 export interface AgentEndEvent {
   type: 'agent_end';
   messages: AgentMessage[];
+}
+
+/**
+ * Fired after a run and all of its continuations settle and the session
+ * goes idle. Handlers observe `ctx.isIdle() === true`. Runs requested from
+ * inside a handler (e.g. `pi.prompt()`) are deferred until every settled
+ * handler finishes, so no handler sees a reentrant `agent_start` (pi 0.87.0).
+ */
+export interface AgentSettledEvent {
+  type: 'agent_settled';
 }
 
 /** Fired at the start of each turn */
@@ -1127,11 +1157,13 @@ export type ExtensionEvent =
   | ResourcesDiscoverEvent
   | SessionEvent
   | ContextEvent
+  | ContextWithSystemEvent
   | BeforeProviderRequestEvent
   | AfterProviderResponseEvent
   | BeforeAgentStartEvent
   | AgentStartEvent
   | AgentEndEvent
+  | AgentSettledEvent
   | TurnStartEvent
   | TurnEndEvent
   | MessageStartEvent
@@ -1154,6 +1186,11 @@ export type ExtensionEvent =
 
 export interface ContextEventResult {
   messages?: AgentMessage[];
+}
+
+export interface ContextWithSystemEventResult {
+  messages?: AgentMessage[];
+  systemPrompt?: string;
 }
 
 export type BeforeProviderRequestEventResult = unknown;
@@ -1282,125 +1319,148 @@ export interface ExtensionAPI {
   // Event Subscription
   // =========================================================================
 
-  on(event: 'project_trust', handler: ProjectTrustHandler): void;
+  on(event: 'project_trust', handler: ProjectTrustHandler): () => void;
   on(
     event: 'resources_discover',
     handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
-  ): void;
+  ): () => void;
   on(
     event: 'session_start',
     handler: ExtensionHandler<SessionStartEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'session_before_switch',
     handler: ExtensionHandler<
       SessionBeforeSwitchEvent,
       SessionBeforeSwitchResult
     >,
-  ): void;
+  ): () => void;
   on(
     event: 'session_before_fork',
     handler: ExtensionHandler<SessionBeforeForkEvent, SessionBeforeForkResult>,
-  ): void;
+  ): () => void;
   on(
     event: 'session_before_compact',
     handler: ExtensionHandler<
       SessionBeforeCompactEvent,
       SessionBeforeCompactResult
     >,
-  ): void;
+  ): () => void;
   on(
     event: 'session_compact',
     handler: ExtensionHandler<SessionCompactEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'session_compact_failed',
     handler: ExtensionHandler<SessionCompactFailedEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'session_shutdown',
     handler: ExtensionHandler<SessionShutdownEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'session_before_tree',
     handler: ExtensionHandler<SessionBeforeTreeEvent, SessionBeforeTreeResult>,
-  ): void;
-  on(event: 'session_tree', handler: ExtensionHandler<SessionTreeEvent>): void;
+  ): () => void;
+  on(
+    event: 'session_tree',
+    handler: ExtensionHandler<SessionTreeEvent>,
+  ): () => void;
   on(
     event: 'context',
     handler: ExtensionHandler<ContextEvent, ContextEventResult>,
-  ): void;
+  ): () => void;
+  on(
+    event: 'context_with_system',
+    handler: ExtensionHandler<
+      ContextWithSystemEvent,
+      ContextWithSystemEventResult
+    >,
+  ): () => void;
   on(
     event: 'before_provider_request',
     handler: ExtensionHandler<
       BeforeProviderRequestEvent,
       BeforeProviderRequestEventResult
     >,
-  ): void;
+  ): () => void;
   on(
     event: 'after_provider_response',
     handler: ExtensionHandler<AfterProviderResponseEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'before_agent_start',
     handler: ExtensionHandler<
       BeforeAgentStartEvent,
       BeforeAgentStartEventResult
     >,
-  ): void;
-  on(event: 'agent_start', handler: ExtensionHandler<AgentStartEvent>): void;
-  on(event: 'agent_end', handler: ExtensionHandler<AgentEndEvent>): void;
-  on(event: 'turn_start', handler: ExtensionHandler<TurnStartEvent>): void;
-  on(event: 'turn_end', handler: ExtensionHandler<TurnEndEvent>): void;
+  ): () => void;
+  on(
+    event: 'agent_start',
+    handler: ExtensionHandler<AgentStartEvent>,
+  ): () => void;
+  on(event: 'agent_end', handler: ExtensionHandler<AgentEndEvent>): () => void;
+  on(
+    event: 'agent_settled',
+    handler: ExtensionHandler<AgentSettledEvent>,
+  ): () => void;
+  on(
+    event: 'turn_start',
+    handler: ExtensionHandler<TurnStartEvent>,
+  ): () => void;
+  on(event: 'turn_end', handler: ExtensionHandler<TurnEndEvent>): () => void;
   on(
     event: 'message_start',
     handler: ExtensionHandler<MessageStartEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'message_update',
     handler: ExtensionHandler<MessageUpdateEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'message_end',
     handler: ExtensionHandler<MessageEndEvent, MessageEndEventResult>,
-  ): void;
+  ): () => void;
   on(
     event: 'tool_execution_start',
     handler: ExtensionHandler<ToolExecutionStartEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'tool_execution_update',
     handler: ExtensionHandler<ToolExecutionUpdateEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'tool_execution_end',
     handler: ExtensionHandler<ToolExecutionEndEvent>,
-  ): void;
-  on(event: 'model_select', handler: ExtensionHandler<ModelSelectEvent>): void;
+  ): () => void;
+  on(
+    event: 'model_select',
+    handler: ExtensionHandler<ModelSelectEvent>,
+  ): () => void;
   on(
     event: 'entry_appended',
     handler: ExtensionHandler<EntryAppendedEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'thinking_level_select',
     handler: ExtensionHandler<ThinkingLevelSelectEvent>,
-  ): void;
+  ): () => void;
   on(
     event: 'tool_call',
     handler: ExtensionHandler<ToolCallEvent, ToolCallEventResult>,
-  ): void;
+  ): () => void;
   on(
     event: 'tool_result',
     handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult>,
-  ): void;
+  ): () => void;
   on(
     event: 'user_bash',
     handler: ExtensionHandler<UserBashEvent, UserBashEventResult>,
-  ): void;
+  ): () => void;
   on(
     event: 'input',
     handler: ExtensionHandler<InputEvent, InputEventResult>,
-  ): void;
+  ): () => void;
 
   // =========================================================================
   // Tool Registration
@@ -1836,6 +1896,10 @@ export interface ExtensionContextActions {
   shutdown: () => void;
   getContextUsage: () => ContextUsage | undefined;
   compact: (options?: CompactOptions) => void;
+  appendContextEdit: (
+    targetId: string,
+    replacement: string | (TextContent | ImageContent)[] | null,
+  ) => string;
   getSystemPrompt: () => string;
   getSystemPromptOptions?: () => BuildSystemPromptOptions;
 }

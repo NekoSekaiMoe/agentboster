@@ -1,5 +1,6 @@
 import { constants } from 'node:fs';
 import { access as fsAccess } from 'node:fs/promises';
+import { constants as osConstants } from 'node:os';
 import type { AgentTool } from '@agentboster-cli/agent';
 import { Container, Text, truncateToWidth } from '@agentboster-cli/tui';
 import { spawn } from 'child_process';
@@ -147,7 +148,15 @@ export function createLocalBashOperations(options?: {
         if (timedOut) {
           throw new Error(`timeout:${timeout}`);
         }
-        return { exitCode };
+        // A signal-killed shell has no exit code. Use the standard shell
+        // convention (128 + signal number) so callers do not mistake the
+        // termination for a successful command with partial output (pi #9577).
+        const signalCode = child.signalCode;
+        return {
+          exitCode:
+            exitCode ??
+            (signalCode ? 128 + (osConstants.signals[signalCode] ?? 0) : 1),
+        };
       } finally {
         if (child.pid) untrackDetachedChildPid(child.pid);
         if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -213,6 +222,17 @@ class BashResultRenderComponent extends Container {
 }
 
 function formatDuration(ms: number): string {
+  // Format runs of a minute or longer as minutes and seconds (pi #9628).
+  if (ms >= 60_000) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes >= 60) {
+      const hours = Math.floor(minutes / 60);
+      return `${hours}h ${minutes % 60}m ${seconds}s`;
+    }
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+  }
   return `${(ms / 1000).toFixed(1)}s`;
 }
 

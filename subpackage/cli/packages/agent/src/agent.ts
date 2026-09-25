@@ -115,6 +115,8 @@ export interface AgentOptions {
     messages: AgentMessage[],
     signal?: AbortSignal,
   ) => Promise<AgentMessage[]>;
+  /** See AgentLoopConfig['transformContextWithSystem']. */
+  transformContextWithSystem?: AgentLoopConfig['transformContextWithSystem'];
   streamFn?: StreamFn;
   getApiKey?: (
     provider: string,
@@ -205,6 +207,7 @@ export class Agent {
     messages: AgentMessage[],
     signal?: AbortSignal,
   ) => Promise<AgentMessage[]>;
+  public transformContextWithSystem?: AgentLoopConfig['transformContextWithSystem'];
   public streamFn: StreamFn;
   public getApiKey?: (
     provider: string,
@@ -239,6 +242,7 @@ export class Agent {
     this._state = createMutableAgentState(options.initialState);
     this.convertToLlm = options.convertToLlm ?? defaultConvertToLlm;
     this.transformContext = options.transformContext;
+    this.transformContextWithSystem = options.transformContextWithSystem;
     this.streamFn = options.streamFn ?? streamSimple;
     this.getApiKey = options.getApiKey;
     this.onPayload = options.onPayload;
@@ -502,6 +506,7 @@ export class Agent {
       afterToolCall: this.afterToolCall,
       convertToLlm: this.convertToLlm,
       transformContext: this.transformContext,
+      transformContextWithSystem: this.transformContextWithSystem,
       getApiKey: this.getApiKey,
       getSteeringMessages: async () => {
         if (skipInitialSteeringPoll) {

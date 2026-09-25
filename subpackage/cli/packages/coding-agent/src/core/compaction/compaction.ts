@@ -546,7 +546,7 @@ function createSummarizationOptions(
   };
 }
 
-async function completeSummarization(
+export async function completeSummarization(
   model: Model<any>,
   context: Context,
   options: SimpleStreamOptions,
@@ -773,20 +773,20 @@ export function prepareCompaction(
 // Main compaction function
 // ============================================================================
 
-const TURN_PREFIX_SUMMARIZATION_PROMPT = `This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
+const TURN_PREFIX_SUMMARIZATION_PROMPT = `The messages above are earlier context from an ongoing conversation. Later messages are stored separately and do not need to be reconstructed.
 
-Summarize the prefix to provide context for the retained suffix:
+Create a concise checkpoint of the user's request and the progress shown above. This checkpoint will be placed before the later messages so the conversation can continue with the necessary context.
 
 ## Original Request
-[What did the user ask for in this turn?]
+[What did the user ask for?]
 
-## Early Progress
-- [Key decisions and work done in the prefix]
+## Progress So Far
+- [Key decisions and work completed in these messages]
 
-## Context for Suffix
-- [Information needed to understand the retained recent work]
+## Context Needed to Continue
+- [Information from these messages needed to understand the later work]
 
-Be concise. Focus on what's needed to understand the kept suffix.`;
+Only summarize information explicitly present above. Do not infer or recreate later messages.`;
 
 /**
  * Generate summaries for compaction using prepared data.
@@ -907,7 +907,11 @@ async function generateTurnPrefixSummary(
   ); // Smaller budget for turn prefix
   const llmMessages = convertToLlm(messages);
   const conversationText = serializeConversation(llmMessages);
-  const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+  // Clearly separate the conversation from the instructions with markdown
+  // sections and continuation-oriented wording (pi #9908): some models
+  // (Claude Fable 5.1) refuse summaries when the conversation blob and the
+  // instruction prompt are blurred together in one tagged block.
+  const promptText = `# Conversation\n${conversationText}\n\n# Instructions\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
   const summarizationMessages = [
     {
       role: 'user' as const,

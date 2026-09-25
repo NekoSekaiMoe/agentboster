@@ -719,6 +719,19 @@ export interface VercelGatewayRouting {
   order?: string[];
 }
 
+/** Per-model input limits (pi 0.87.0). */
+export interface ModelInputLimits {
+  images?: {
+    /** Cache-safe resize profile applied to image inputs for this model. */
+    resize?: {
+      maxWidth?: number;
+      maxHeight?: number;
+      maxBytes?: number;
+      jpegQuality?: number;
+    };
+  };
+}
+
 // Model interface for the unified model system
 export interface Model<TApi extends Api> {
   id: string;
@@ -741,6 +754,8 @@ export interface Model<TApi extends Api> {
   };
   contextWindow: number;
   maxTokens: number;
+  /** Per-model input limits (pi 0.87.0): cache-safe image resize profiles. */
+  inputLimits?: ModelInputLimits;
   headers?: Record<string, string>;
   /** Compatibility overrides for OpenAI-compatible APIs. If not set, auto-detected from baseUrl. */
   compat?: TApi extends 'openai-completions'

@@ -61,8 +61,15 @@ export class ToolExecutionComponent extends Container {
     isError: boolean;
     details?: any;
   };
-  private convertedImages: Map<number, { data: string; mimeType: string }> =
-    new Map();
+  private convertedImages: Map<
+    number,
+    {
+      sourceData: string;
+      sourceMimeType: string;
+      data: string;
+      mimeType: string;
+    }
+  > = new Map();
   private hideComponent = false;
 
   constructor(
@@ -238,15 +245,38 @@ export class ToolExecutionComponent extends Container {
       const img = imageBlocks[i];
       if (!img.data || !img.mimeType) continue;
       if (img.mimeType === 'image/png') continue;
-      if (this.convertedImages.has(i)) continue;
+      const cached = this.convertedImages.get(i);
+      if (
+        cached?.sourceData === img.data &&
+        cached.sourceMimeType === img.mimeType
+      ) {
+        continue;
+      }
 
       const index = i;
-      convertToPng(img.data, img.mimeType).then((converted) => {
-        if (converted) {
-          this.convertedImages.set(index, converted);
-          this.updateDisplay();
-          this.ui.requestRender();
+      const sourceData = img.data;
+      const sourceMimeType = img.mimeType;
+      convertToPng(sourceData, sourceMimeType).then((converted) => {
+        // Guard against the async conversion finishing after newer partial
+        // tool output replaced this image (pi #8743).
+        const currentImage = this.result?.content.filter(
+          (content) => content.type === 'image',
+        )[index];
+        if (
+          !converted ||
+          currentImage?.data !== sourceData ||
+          currentImage.mimeType !== sourceMimeType
+        ) {
+          return;
         }
+        this.convertedImages.set(index, {
+          sourceData,
+          sourceMimeType,
+          data: converted.data,
+          mimeType: converted.mimeType,
+        });
+        this.updateDisplay();
+        this.ui.requestRender();
       });
     }
   }

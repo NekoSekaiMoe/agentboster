@@ -12,7 +12,12 @@ export function detectSupportedImageMimeType(
   if (startsWith(buffer, PNG_SIGNATURE)) {
     return isPng(buffer) && !isAnimatedPng(buffer) ? 'image/png' : null;
   }
-  if (startsWithAscii(buffer, 0, 'GIF')) {
+  // Check the full GIF signature (pi #9755): a text file that merely
+  // begins with the ASCII letters "GIF" is not a GIF image.
+  if (
+    startsWithAscii(buffer, 0, 'GIF87a') ||
+    startsWithAscii(buffer, 0, 'GIF89a')
+  ) {
     return 'image/gif';
   }
   if (

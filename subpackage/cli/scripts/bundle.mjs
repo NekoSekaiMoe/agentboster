@@ -15,7 +15,11 @@ import * as fs from "node:fs";
  */
 
 const entry = "packages/coding-agent/src/cli.ts";
-const outfile = "packages/coding-agent/dist/agentboster-cli.cjs";
+// The real bundle. The published entry (agentboster-cli.cjs) is a tiny shim
+// that enables Node's persistent compile cache first (pi 0.86.1), then
+// requires this file — same layout as pi's dist/bundle/{cli,cli-runtime}.js.
+const runtimeOutfile = "packages/coding-agent/dist/agentboster-cli-runtime.cjs";
+const shimOutfile = "packages/coding-agent/dist/agentboster-cli.cjs";
 
 /** Packages to keep external (don't try to bundle). */
 const external = [
@@ -42,7 +46,7 @@ try {
 		platform: "node",
 		format: "cjs",
 		target: "node22",
-		outfile,
+		outfile: runtimeOutfile,
 		sourcemap: false,
 		minify: false,
 		keepNames: true,
@@ -108,4 +112,22 @@ try {
 	process.exit(1);
 }
 
-console.log(`bundle: ${outfile}`);
+// Entry shim: enable Node's persistent compile cache before loading the
+// runtime bundle, reducing repeat launch time. Mirrors pi 0.86.1's
+// dist/bundle/cli.js. enableCompileCache() landed in Node 22.8; the CLI
+// requires >= 22.19, but keep the optional-call guard for exotic runtimes.
+fs.writeFileSync(
+	shimOutfile,
+	[
+		"#!/usr/bin/env node",
+		"// Entry shim for agentboster-cli: enables Node's persistent compile cache",
+		"// (pi 0.86.1) and loads the real bundle. Keep this file tiny — it must stay",
+		"// outside the big require so the cache is armed before compilation.",
+		"try { require('node:module').enableCompileCache?.(); } catch {}",
+		"require('./agentboster-cli-runtime.cjs');",
+		"",
+	].join("\n"),
+);
+
+console.log(`bundle: ${runtimeOutfile}`);
+console.log(`bundle: ${shimOutfile} (compile-cache shim)`);

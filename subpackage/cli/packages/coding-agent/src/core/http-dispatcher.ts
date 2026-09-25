@@ -58,8 +58,15 @@ export function configureHttpDispatcher(
   undici.setGlobalDispatcher(
     new undici.EnvHttpProxyAgent({
       allowH2: false,
+      // Keep HTTP origins on CONNECT tunnels as they were before Undici 8.7
+      // (pi #8134): proxied plain-HTTP requests must tunnel instead of being
+      // sent as absolute-form requests that hang after a tool call.
+      proxyTunnel: true,
       bodyTimeout: normalizedTimeoutMs,
       headersTimeout: normalizedTimeoutMs,
+      connect: {
+        autoSelectFamilyAttemptTimeout: 2_000,
+      },
     }),
   );
   // Keep fetch and the dispatcher on the same undici implementation. Node 26.0's

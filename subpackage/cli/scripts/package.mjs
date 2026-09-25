@@ -31,10 +31,12 @@ import { execFileSync, execSync } from "node:child_process";
 
 const root = resolveRoot();
 const codingAgentDir = join(root, "packages", "coding-agent");
+// Entry shim (compile-cache) + real runtime bundle — both ship in the tarball.
 const cjsPath = join(codingAgentDir, "dist", "agentboster-cli.cjs");
+const runtimePath = join(codingAgentDir, "dist", "agentboster-cli-runtime.cjs");
 const pkgPath = join(codingAgentDir, "package.json");
 
-if (!existsSync(cjsPath)) {
+if (!existsSync(cjsPath) || !existsSync(runtimePath)) {
 	console.error(
 		"agentboster-cli.cjs not found. Run `npm run bundle` before `npm run package`.",
 	);
@@ -57,9 +59,14 @@ const outPath = join(root, tarGz);
 rmSync(stagingDir, { recursive: true, force: true });
 mkdirSync(stagingInner, { recursive: true });
 
-// 1) agentboster-cli.cjs (executable bit for direct `./agentboster-cli.cjs` use).
+// 1) agentboster-cli.cjs entry shim + runtime bundle (executable bit for
+//    direct `./agentboster-cli.cjs` use).
 writeFileSync(join(stagingInner, "agentboster-cli.cjs"), readFileSync(cjsPath));
 chmodSync(join(stagingInner, "agentboster-cli.cjs"), 0o755);
+writeFileSync(
+	join(stagingInner, "agentboster-cli-runtime.cjs"),
+	readFileSync(runtimePath),
+);
 
 // 2) Shell entry — convenience so users run `./agentboster-cli` not
 //    `./agentboster-cli.cjs`. `exec node` replaces the shell process so
@@ -75,6 +82,22 @@ chmodSync(join(stagingInner, "agentboster-cli"), 0o755);
 
 // 3) computer-use-mcp binary (same directory)
 packageComputerUseMcp(stagingInner);
+
+// 3b) Minimal package.json so the runtime entry can resolve
+//     APP_NAME/CONFIG_DIR_NAME/VERSION at startup (config.ts reads it
+//     next to the entry). Keeps the tarball self-contained.
+writeFileSync(
+	join(stagingInner, "package.json"),
+	`${JSON.stringify(
+		{
+			name: pkg.name,
+			version,
+			piConfig: pkg.piConfig ?? { name: 'agentboster', configDir: '.agentboster' },
+		},
+		null,
+		2,
+	)}\n`,
+);
 
 // 4) Create the tarball with reproducible metadata.
 //    Pass argv directly via execFileSync (no shell) so paths containing

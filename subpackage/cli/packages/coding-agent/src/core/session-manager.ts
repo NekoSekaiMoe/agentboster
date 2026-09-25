@@ -172,6 +172,20 @@ export interface LabelEntry extends SessionEntryBase {
   label: string | undefined;
 }
 
+/**
+ * Append-only model-context edit (pi 0.87.0): rewrites or omits one message
+ * entry from future provider context WITHOUT changing raw history, usage,
+ * or UI history. The edit applies only when it appears on the path after
+ * its target; later edits for the same target win.
+ */
+export interface ContextEditEntry extends SessionEntryBase {
+  type: 'context_edit';
+  /** The path entry this edit applies to. */
+  targetId: string;
+  /** Replacement content, or null to omit the target from provider context. */
+  replacement: string | (TextContent | ImageContent)[] | null;
+}
+
 /** Session metadata entry (e.g., user-defined display name). */
 export interface SessionInfoEntry extends SessionEntryBase {
   type: 'session_info';
@@ -208,6 +222,7 @@ export type SessionEntry =
   | CustomEntry
   | CustomMessageEntry
   | LabelEntry
+  | ContextEditEntry
   | SessionInfoEntry;
 
 /** Raw file entry (includes header) */
@@ -524,6 +539,36 @@ export function sessionEntryToContextMessages(
  * If leafId is provided, walks from that entry to root.
  * Handles compaction and branch summaries along the path.
  */
+/**
+ * Apply a context-edit replacement to a message (pi 0.87.0). String
+ * replacements are normalized into role-appropriate text blocks so
+ * assistant and tool-result messages never end up with invalid string
+ * content (upstream fix for string context-edit replacements).
+ */
+function applyContextEditReplacement(
+  message: AgentMessage,
+  replacement: string | (TextContent | ImageContent)[],
+): AgentMessage {
+  if (message.role === 'user' || message.role === 'custom') {
+    // User/custom content accepts both string and block forms verbatim.
+    return { ...message, content: replacement };
+  }
+  if (message.role === 'assistant' || message.role === 'toolResult') {
+    const blocks: (TextContent | ImageContent)[] =
+      typeof replacement === 'string'
+        ? [{ type: 'text', text: replacement }]
+        : replacement;
+    return {
+      ...message,
+      // Assistant/toolResult content arrays accept text/image blocks;
+      // existing non-text blocks (thinking/toolCall) are dropped by design —
+      // a replacement replaces the whole message content.
+      content: blocks as never,
+    };
+  }
+  return message;
+}
+
 export function buildSessionContext(
   entries: SessionEntry[],
   leafId?: string | null,
@@ -591,13 +636,37 @@ export function buildSessionContext(
   // 3. Emit messages after compaction
   const messages: AgentMessage[] = [];
 
+  // Collect append-only context edits (pi 0.87.0): the latest edit on the
+  // path for a target wins; an edit only applies to entries that precede it.
+  const contextEdits = new Map<string, ContextEditEntry>();
+  const editPathIndex = new Map<string, number>();
+  for (let i = 0; i < path.length; i++) {
+    const entry = path[i];
+    if (entry.type === 'context_edit') {
+      contextEdits.set(entry.targetId, entry);
+      editPathIndex.set(entry.id, i);
+    }
+  }
+
   // Reuse sessionEntryToContextMessages so both context paths normalize
   // entries identically (null/missing content -> empty array, custom_message
   // content fallback). Compaction entries are handled explicitly below
   // (summary first, then kept messages) — older compactions on the path must
-  // not re-emit their summaries here.
-  const appendMessage = (entry: SessionEntry) => {
-    if (entry.type === 'compaction') return;
+  // not re-emit their summaries here. Context-edit entries themselves never
+  // contribute messages.
+  const appendMessage = (entry: SessionEntry, pathIndex: number) => {
+    if (entry.type === 'compaction' || entry.type === 'context_edit') return;
+    const edit = contextEdits.get(entry.id);
+    if (edit && (editPathIndex.get(edit.id) ?? -1) > pathIndex) {
+      if (edit.replacement === null) {
+        // Omit the target from future provider context.
+        return;
+      }
+      for (const message of sessionEntryToContextMessages(entry)) {
+        messages.push(applyContextEditReplacement(message, edit.replacement));
+      }
+      return;
+    }
     messages.push(...sessionEntryToContextMessages(entry));
   };
 
@@ -624,19 +693,19 @@ export function buildSessionContext(
         foundFirstKept = true;
       }
       if (foundFirstKept) {
-        appendMessage(entry);
+        appendMessage(entry, i);
       }
     }
 
     // Emit messages after compaction
     for (let i = compactionIdx + 1; i < path.length; i++) {
       const entry = path[i];
-      appendMessage(entry);
+      appendMessage(entry, i);
     }
   } else {
     // No compaction - emit all messages, handle branch summaries and custom messages
-    for (const entry of path) {
-      appendMessage(entry);
+    for (let i = 0; i < path.length; i++) {
+      appendMessage(path[i], i);
     }
   }
 
@@ -1210,21 +1279,48 @@ export class SessionManager {
   /** Append a compaction summary as child of current leaf, then advance leaf. Returns entry id. */
   appendCompaction<T = unknown>(
     summary: string,
-    firstKeptEntryId: string,
+    firstKeptEntryId: string | null,
     tokensBefore: number,
     details?: T,
     fromHook?: boolean,
   ): string {
+    const id = generateId(this.byId);
     const entry: CompactionEntry<T> = {
       type: 'compaction',
-      id: generateId(this.byId),
+      id,
       parentId: this.leafId,
       timestamp: new Date().toISOString(),
       summary,
-      firstKeptEntryId,
+      // Retain-none compaction (pi 0.87.0): a null firstKeptEntryId stores
+      // the compaction's own ID as its kept boundary, so no pre-compaction
+      // message is retained.
+      firstKeptEntryId: firstKeptEntryId ?? id,
       tokensBefore,
       details,
       fromHook,
+    };
+    this._appendEntry(entry);
+    return entry.id;
+  }
+
+  /**
+   * Append a context edit (pi 0.87.0) as child of the current leaf, then
+   * advance the leaf. The edit omits `targetId` from future provider context
+   * when `replacement` is null, or replaces its content otherwise. Raw
+   * history, usage, and UI history are unchanged.
+   * @returns the new entry id.
+   */
+  appendContextEdit(
+    targetId: string,
+    replacement: string | (TextContent | ImageContent)[] | null,
+  ): string {
+    const entry: ContextEditEntry = {
+      type: 'context_edit',
+      id: generateId(this.byId),
+      parentId: this.leafId,
+      timestamp: new Date().toISOString(),
+      targetId,
+      replacement,
     };
     this._appendEntry(entry);
     return entry.id;

@@ -224,6 +224,7 @@ export type AgentSessionEvent =
       steering: readonly string[];
       followUp: readonly string[];
     }
+  | { type: 'agent_settled' }
   | { type: 'entry_appended'; entry: SessionEntry }
   | { type: 'compaction_start'; reason: 'manual' | 'threshold' | 'overflow' }
   | { type: 'session_info_changed'; name: string | undefined }
@@ -409,6 +410,10 @@ export class AgentSession {
   // Retry state
   private _retryAbortController: AbortController | undefined = undefined;
   private _retryAttempt = 0;
+  /** True while `agent_settled` handlers are being dispatched (pi 0.87.0). */
+  private _isEmittingAgentSettled = false;
+  /** Runs requested from `agent_settled` handlers; drained after all handlers finish. */
+  private _deferredSettledActions: Array<() => Promise<void>> = [];
 
   /** One-shot regenerate intent. When set, the next `streamFn` call POSTs
    *  to /api/cli/chat with `trigger: 'regenerate-message'` + this messageId
@@ -1139,6 +1144,28 @@ export class AgentSession {
       }
     } finally {
       this._flushPendingBashMessages();
+      await this._emitAgentSettled();
+    }
+  }
+
+  /**
+   * Emit `agent_settled` after a run and all continuations settle. Runs
+   * requested from inside a handler are deferred until every handler has
+   * finished, so no handler observes a reentrant `agent_start` during the
+   * same notification dispatch (pi 0.87.0).
+   */
+  private async _emitAgentSettled(): Promise<void> {
+    if (this._isEmittingAgentSettled) return;
+    this._isEmittingAgentSettled = true;
+    try {
+      await this._extensionRunner.emit({ type: 'agent_settled' });
+      this._emit({ type: 'agent_settled' });
+    } finally {
+      this._isEmittingAgentSettled = false;
+    }
+    const deferred = this._deferredSettledActions.splice(0);
+    for (const action of deferred) {
+      await action();
     }
   }
 
@@ -1182,6 +1209,15 @@ export class AgentSession {
    * @throws Error if no model selected or no API key available (when not streaming)
    */
   async prompt(text: string, options?: PromptOptions): Promise<void> {
+    // A prompt requested from an `agent_settled` handler must not reenter the
+    // loop while the settled dispatch is still running (pi 0.87.0): defer it
+    // until every handler has finished.
+    if (this._isEmittingAgentSettled) {
+      this._deferredSettledActions.push(async () => {
+        await this.prompt(text, options);
+      });
+      return;
+    }
     const expandPromptTemplates = options?.expandPromptTemplates ?? true;
     const preflightResult = options?.preflightResult;
     let messages: AgentMessage[] | undefined;
@@ -1199,24 +1235,18 @@ export class AgentSession {
       }
 
       // Emit input event for extension interception (before skill/template expansion)
-      let currentText = text;
-      let currentImages = options?.images;
-      if (this._extensionRunner.hasHandlers('input')) {
-        const inputResult = await this._extensionRunner.emitInput(
-          currentText,
-          currentImages,
-          options?.source ?? 'interactive',
-          this.isStreaming ? options?.streamingBehavior : undefined,
-        );
-        if (inputResult.action === 'handled') {
-          preflightResult?.(true);
-          return;
-        }
-        if (inputResult.action === 'transform') {
-          currentText = inputResult.text;
-          currentImages = inputResult.images ?? currentImages;
-        }
+      const inputHandled = await this._applyExtensionInputHandlers(
+        text,
+        options?.images,
+        options?.source ?? 'interactive',
+        options?.streamingBehavior,
+        (handled) => preflightResult?.(handled),
+      );
+      if (inputHandled.handled) {
+        return;
       }
+      const currentText = inputHandled.text;
+      const currentImages = inputHandled.images;
 
       // Expand skill commands (/skill:name args) and prompt templates (/template args)
       let expandedText = currentText;
@@ -1418,6 +1448,45 @@ export class AgentSession {
   }
 
   /**
+   * Run extension `input` handlers over a message. Shared by prompt(),
+   * steer(), and followUp() so direct RPC calls get the same interception
+   * (pi #8718).
+   */
+  private async _applyExtensionInputHandlers(
+    text: string,
+    images: ImageContent[] | undefined,
+    source: InputSource,
+    streamingBehavior: 'steer' | 'followUp' | undefined,
+    onHandled?: (handled: boolean) => void,
+  ): Promise<{
+    handled: boolean;
+    text: string;
+    images: ImageContent[] | undefined;
+  }> {
+    if (!this._extensionRunner.hasHandlers('input')) {
+      return { handled: false, text, images };
+    }
+    const inputResult = await this._extensionRunner.emitInput(
+      text,
+      images,
+      source,
+      this.isStreaming ? streamingBehavior : undefined,
+    );
+    if (inputResult.action === 'handled') {
+      onHandled?.(true);
+      return { handled: true, text, images };
+    }
+    if (inputResult.action === 'transform') {
+      return {
+        handled: false,
+        text: inputResult.text,
+        images: inputResult.images ?? images,
+      };
+    }
+    return { handled: false, text, images };
+  }
+
+  /**
    * Queue a steering message while the agent is running.
    * Delivered after the current assistant turn finishes executing its tool calls,
    * before the next LLM call.
@@ -1431,13 +1500,23 @@ export class AgentSession {
       this._throwIfExtensionCommand(text);
     }
 
+    // Direct steer/followUp callers (e.g. RPC) must pass the same extension
+    // `input` interception as interactive prompts (pi #8718).
+    const inputHandled = await this._applyExtensionInputHandlers(
+      text,
+      images,
+      'rpc',
+      'steer',
+    );
+    if (inputHandled.handled) return;
+
     // Expand skill commands and prompt templates
-    let expandedText = this._expandSkillCommand(text);
+    let expandedText = this._expandSkillCommand(inputHandled.text);
     expandedText = expandPromptTemplate(expandedText, [
       ...this.promptTemplates,
     ]);
 
-    await this._queueSteer(expandedText, images);
+    await this._queueSteer(expandedText, inputHandled.images);
   }
 
   /**
@@ -1453,13 +1532,23 @@ export class AgentSession {
       this._throwIfExtensionCommand(text);
     }
 
+    // Direct steer/followUp callers (e.g. RPC) must pass the same extension
+    // `input` interception as interactive prompts (pi #8718).
+    const inputHandled = await this._applyExtensionInputHandlers(
+      text,
+      images,
+      'rpc',
+      'followUp',
+    );
+    if (inputHandled.handled) return;
+
     // Expand skill commands and prompt templates
-    let expandedText = this._expandSkillCommand(text);
+    let expandedText = this._expandSkillCommand(inputHandled.text);
     expandedText = expandPromptTemplate(expandedText, [
       ...this.promptTemplates,
     ]);
 
-    await this._queueFollowUp(expandedText, images);
+    await this._queueFollowUp(expandedText, inputHandled.images);
   }
 
   /**
@@ -1975,6 +2064,49 @@ export class AgentSession {
   setFollowUpMode(mode: 'all' | 'one-at-a-time'): void {
     this.agent.followUpMode = mode;
     this.settingsManager.setFollowUpMode(mode);
+  }
+
+  // =========================================================================
+  // Context edits (pi 0.87.0)
+  // =========================================================================
+
+  /**
+   * Rebuild the live agent context from the session manager. The session
+   * manager is the source of truth for provider context (pi 0.87.0):
+   * append-only context edits, compaction boundaries, and branch
+   * summarization are all resolved here.
+   */
+  refreshContext(): void {
+    if (this.isStreaming) {
+      throw new Error('Cannot refresh context while the agent is streaming');
+    }
+    this.agent.state.messages =
+      this.sessionManager.buildSessionContext().messages;
+  }
+
+  /**
+   * Append a model-context edit (pi 0.87.0): omit `targetId` from future
+   * provider context when `replacement` is null, or replace its content
+   * otherwise — without rewriting raw history or UI history. The live agent
+   * context is refreshed immediately when idle.
+   * @returns the new entry id.
+   */
+  appendContextEdit(
+    targetId: string,
+    replacement: string | (TextContent | ImageContent)[] | null,
+  ): string {
+    const entryId = this.sessionManager.appendContextEdit(
+      targetId,
+      replacement,
+    );
+    const entry = this.sessionManager.getEntry(entryId);
+    if (entry) {
+      this._emit({ type: 'entry_appended', entry });
+    }
+    if (!this.isStreaming) {
+      this.refreshContext();
+    }
+    return entryId;
   }
 
   // =========================================================================
@@ -2792,6 +2924,9 @@ export class AgentSession {
             }
           })();
         },
+        appendContextEdit: (targetId, replacement) => {
+          return this.appendContextEdit(targetId, replacement);
+        },
         getSystemPrompt: () => this.systemPrompt,
         getSystemPromptOptions: () => this._baseSystemPromptOptions,
       },
@@ -3076,7 +3211,12 @@ export class AgentSession {
       return false;
     }
 
-    const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);
+    // Cap agent-level backoff (pi #8826) so prolonged transient outages
+    // keep the retry loop responsive instead of sleeping unboundedly.
+    const delayMs = Math.min(
+      settings.baseDelayMs * 2 ** (this._retryAttempt - 1),
+      settings.maxAgentDelayMs,
+    );
 
     this._emit({
       type: 'auto_retry_start',

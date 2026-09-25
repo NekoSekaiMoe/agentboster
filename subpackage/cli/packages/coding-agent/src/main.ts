@@ -34,7 +34,8 @@ import {
   showFirstTimeSetup,
   showStartupSelector,
 } from './cli/startup-ui.ts';
-import { getAgentDir, VERSION } from './config.ts';
+import { APP_NAME, getAgentDir, VERSION } from './config.ts';
+import { takeUnnotifiedCrash } from './core/crash-log.ts';
 import {
   type CreateAgentSessionRuntimeFactory,
   createAgentSessionRuntime,
@@ -620,6 +621,24 @@ export async function main(args: string[], options?: MainOptions) {
   if (parsed.version) {
     console.log(VERSION);
     process.exit(0);
+  }
+
+  // Announce a previous crash once (pi 0.86.0). Printed before any TUI
+  // takes over the terminal so it cannot corrupt rendering.
+  {
+    const crash = takeUnnotifiedCrash();
+    if (crash) {
+      console.error(
+        chalk.yellow(
+          `The previous ${APP_NAME} run crashed (${crash.kind}): ${crash.message}`,
+        ),
+      );
+      console.error(
+        chalk.yellow(
+          'Run /bug inside a session to attach it to a bug report archive.',
+        ),
+      );
+    }
   }
 
   if (parsed.export) {

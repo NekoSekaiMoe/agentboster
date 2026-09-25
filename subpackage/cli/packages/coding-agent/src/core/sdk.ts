@@ -401,6 +401,13 @@ export async function createAgentSession(
       if (!runner) return messages;
       return runner.emitContext(messages);
     },
+    transformContextWithSystem: async (messages, systemPrompt) => {
+      const runner = extensionRunnerRef.current;
+      if (!runner?.hasHandlers('context_with_system')) {
+        return { messages, systemPrompt };
+      }
+      return runner.emitContextWithSystem(messages, systemPrompt);
+    },
     steeringMode: settingsManager.getSteeringMode(),
     followUpMode: settingsManager.getFollowUpMode(),
     transport: settingsManager.getTransport(),

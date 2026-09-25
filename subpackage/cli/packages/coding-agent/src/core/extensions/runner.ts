@@ -3,7 +3,7 @@
  */
 
 import type { AgentMessage } from '@agentboster-cli/agent';
-import type { ImageContent, Model } from '@agentboster-cli/ai';
+import type { ImageContent, Model, TextContent } from '@agentboster-cli/ai';
 import type { KeyId } from '@agentboster-cli/tui';
 import { type Theme, theme } from '../../modes/interactive/theme/theme.ts';
 import type { ResourceDiagnostic } from '../diagnostics.ts';
@@ -19,6 +19,8 @@ import type {
   ContextEvent,
   ContextEventResult,
   ContextUsage,
+  ContextWithSystemEvent,
+  ContextWithSystemEventResult,
   Extension,
   ExtensionActions,
   ExtensionCommandContext,
@@ -119,6 +121,41 @@ interface BeforeAgentStartCombinedResult {
   systemPrompt?: string;
 }
 
+/** Identity comparison between two message lists. */
+function sameMessages(left: AgentMessage[], right: AgentMessage[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((message, index) => message === right[index])
+  );
+}
+
+/** Validate a user_bash handler result: exactly one of { operations } or { result }. */
+function isUserBashEventResult(value: unknown): value is UserBashEventResult {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  const hasOperations = candidate.operations !== undefined;
+  const hasResult = candidate.result !== undefined;
+  if (hasOperations === hasResult) return false;
+  if (hasOperations) {
+    const operations = candidate.operations;
+    if (typeof operations !== 'object' || operations === null) return false;
+    return typeof (operations as Record<string, unknown>).exec === 'function';
+  }
+  const result = candidate.result;
+  if (typeof result !== 'object' || result === null) return false;
+  const resultRecord = result as Record<string, unknown>;
+  return (
+    typeof resultRecord.output === 'string' &&
+    'exitCode' in resultRecord &&
+    (resultRecord.exitCode === undefined ||
+      typeof resultRecord.exitCode === 'number') &&
+    typeof resultRecord.cancelled === 'boolean' &&
+    typeof resultRecord.truncated === 'boolean' &&
+    (resultRecord.fullOutputPath === undefined ||
+      typeof resultRecord.fullOutputPath === 'string')
+  );
+}
+
 /**
  * Events handled by the generic emit() method.
  * Events with dedicated emitXxx() methods are excluded for stronger type safety.
@@ -130,6 +167,7 @@ type RunnerEmitEvent = Exclude<
   | ToolResultEvent
   | UserBashEvent
   | ContextEvent
+  | ContextWithSystemEvent
   | BeforeProviderRequestEvent
   | BeforeAgentStartEvent
   | MessageEndEvent
@@ -225,7 +263,7 @@ export async function emitProjectTrustEvent(
   for (const ext of extensionsResult.extensions) {
     // A single extension may register multiple handlers for the same event.
     // The first project_trust handler that returns yes/no wins; undecided falls through.
-    const handlers = ext.handlers.get('project_trust');
+    const handlers = ext.handlers.get('project_trust')?.slice();
     if (!handlers || handlers.length === 0) continue;
 
     for (const handler of handlers) {
@@ -309,6 +347,12 @@ export class ExtensionRunner {
   private hasPendingMessagesFn: () => boolean = () => false;
   private getContextUsageFn: () => ContextUsage | undefined = () => undefined;
   private compactFn: (options?: CompactOptions) => void = () => {};
+  private appendContextEditFn: (
+    targetId: string,
+    replacement: string | (TextContent | ImageContent)[] | null,
+  ) => string = () => {
+    throw new Error('appendContextEdit is not available before bindCore()');
+  };
   private getSystemPromptFn: () => string = () => '';
   private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({
     cwd: this.cwd,
@@ -378,6 +422,7 @@ export class ExtensionRunner {
     this.shutdownHandler = contextActions.shutdown;
     this.getContextUsageFn = contextActions.getContextUsage;
     this.compactFn = contextActions.compact;
+    this.appendContextEditFn = contextActions.appendContextEdit;
     this.getSystemPromptFn = contextActions.getSystemPrompt;
     this.getSystemPromptOptionsFn =
       contextActions.getSystemPromptOptions ?? (() => ({ cwd: this.cwd }));
@@ -551,12 +596,17 @@ export class ExtensionRunner {
 
   hasHandlers(eventType: string): boolean {
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get(eventType);
+      const handlers = ext.handlers.get(eventType)?.slice();
       if (handlers && handlers.length > 0) {
         return true;
       }
     }
     return false;
+  }
+
+  /** Loaded extensions (defensive copy) for diagnostics surfaces like /bug. */
+  getLoadedExtensions(): readonly Extension[] {
+    return this.extensions.slice();
   }
 
   getMessageRenderer(customType: string): MessageRenderer | undefined {
@@ -709,6 +759,10 @@ export class ExtensionRunner {
         runner.assertActive();
         runner.compactFn(options);
       },
+      appendContextEdit: (targetId, replacement) => {
+        runner.assertActive();
+        return runner.appendContextEditFn(targetId, replacement);
+      },
       getSystemPrompt: () => {
         runner.assertActive();
         return runner.getSystemPromptFn();
@@ -773,7 +827,7 @@ export class ExtensionRunner {
     let result: SessionBeforeEventResult | undefined;
 
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get(event.type);
+      const handlers = ext.handlers.get(event.type)?.slice();
       if (!handlers || handlers.length === 0) continue;
 
       for (const handler of handlers) {
@@ -810,7 +864,7 @@ export class ExtensionRunner {
     let modified = false;
 
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get('message_end');
+      const handlers = ext.handlers.get('message_end')?.slice();
       if (!handlers || handlers.length === 0) continue;
 
       for (const handler of handlers) {
@@ -860,7 +914,7 @@ export class ExtensionRunner {
     let modified = false;
 
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get('tool_result');
+      const handlers = ext.handlers.get('tool_result')?.slice();
       if (!handlers || handlers.length === 0) continue;
 
       for (const handler of handlers) {
@@ -913,7 +967,7 @@ export class ExtensionRunner {
     let result: ToolCallEventResult | undefined;
 
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get('tool_call');
+      const handlers = ext.handlers.get('tool_call')?.slice();
       if (!handlers || handlers.length === 0) continue;
 
       for (const handler of handlers) {
@@ -937,15 +991,19 @@ export class ExtensionRunner {
     const ctx = this.createContext();
 
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get('user_bash');
+      const handlers = ext.handlers.get('user_bash')?.slice();
       if (!handlers || handlers.length === 0) continue;
 
       for (const handler of handlers) {
         try {
           const handlerResult = await handler(event, ctx);
-          if (handlerResult) {
-            return handlerResult as UserBashEventResult;
+          if (handlerResult === undefined) continue;
+          if (!isUserBashEventResult(handlerResult)) {
+            throw new Error(
+              'Invalid user_bash handler result: return undefined for local execution or exactly one valid { operations } or { result } object',
+            );
           }
+          return handlerResult as UserBashEventResult;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           const stack = err instanceof Error ? err.stack : undefined;
@@ -955,6 +1013,9 @@ export class ExtensionRunner {
             error: message,
             stack,
           });
+          // Fail closed (pi 0.86.0): an erroring or invalid user_bash handler
+          // aborts the command instead of falling through to local execution.
+          throw err;
         }
       }
     }
@@ -967,7 +1028,7 @@ export class ExtensionRunner {
     let currentMessages = structuredClone(messages);
 
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get('context');
+      const handlers = ext.handlers.get('context')?.slice();
       if (!handlers || handlers.length === 0) continue;
 
       for (const handler of handlers) {
@@ -976,10 +1037,16 @@ export class ExtensionRunner {
             type: 'context',
             messages: currentMessages,
           };
+          // Handlers may return a new list or edit event.messages in place.
+          const snapshot = currentMessages.slice();
           const handlerResult = await handler(event, ctx);
-
-          if (handlerResult && (handlerResult as ContextEventResult).messages) {
-            currentMessages = (handlerResult as ContextEventResult).messages!;
+          const returned =
+            (handlerResult as ContextEventResult | undefined)?.messages ??
+            (sameMessages(currentMessages, snapshot)
+              ? undefined
+              : currentMessages);
+          if (returned) {
+            currentMessages = returned;
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -997,12 +1064,63 @@ export class ExtensionRunner {
     return currentMessages;
   }
 
+  /**
+   * Run after all `context` handlers with the full request picture
+   * (conversation + system prompt). Results are used verbatim.
+   */
+  async emitContextWithSystem(
+    messages: AgentMessage[],
+    systemPrompt: string,
+  ): Promise<{ messages: AgentMessage[]; systemPrompt: string }> {
+    const ctx = this.createContext();
+    let currentMessages = messages;
+    let currentSystemPrompt = systemPrompt;
+
+    for (const ext of this.extensions) {
+      const handlers = ext.handlers.get('context_with_system')?.slice();
+      if (!handlers || handlers.length === 0) continue;
+
+      for (const handler of handlers) {
+        try {
+          const event: ContextWithSystemEvent = {
+            type: 'context_with_system',
+            messages: currentMessages,
+            systemPrompt: currentSystemPrompt,
+          };
+          const handlerResult = (await handler(event, ctx)) as
+            | ContextWithSystemEventResult
+            | undefined;
+          if (handlerResult?.messages) {
+            currentMessages = handlerResult.messages;
+          }
+          if (
+            handlerResult?.systemPrompt !== undefined &&
+            handlerResult.systemPrompt !== currentSystemPrompt
+          ) {
+            currentSystemPrompt = handlerResult.systemPrompt;
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const stack = err instanceof Error ? err.stack : undefined;
+          this.emitError({
+            extensionPath: ext.path,
+            event: 'context_with_system',
+            error: message,
+            stack,
+          });
+        }
+      }
+    }
+
+    return { messages: currentMessages, systemPrompt: currentSystemPrompt };
+  }
+
   async emitBeforeProviderRequest(payload: unknown): Promise<unknown> {
     const ctx = this.createContext();
     let currentPayload = payload;
 
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get('before_provider_request');
+      const handlers = ext.handlers.get('before_provider_request')?.slice();
       if (!handlers || handlers.length === 0) continue;
 
       for (const handler of handlers) {
@@ -1050,7 +1168,7 @@ export class ExtensionRunner {
     let systemPromptModified = false;
 
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get('before_agent_start');
+      const handlers = ext.handlers.get('before_agent_start')?.slice();
       if (!handlers || handlers.length === 0) continue;
 
       for (const handler of handlers) {
@@ -1111,7 +1229,7 @@ export class ExtensionRunner {
     const themePaths: Array<{ path: string; extensionPath: string }> = [];
 
     for (const ext of this.extensions) {
-      const handlers = ext.handlers.get('resources_discover');
+      const handlers = ext.handlers.get('resources_discover')?.slice();
       if (!handlers || handlers.length === 0) continue;
 
       for (const handler of handlers) {
@@ -1176,7 +1294,7 @@ export class ExtensionRunner {
     let currentImages = images;
 
     for (const ext of this.extensions) {
-      for (const handler of ext.handlers.get('input') ?? []) {
+      for (const handler of ext.handlers.get('input')?.slice() ?? []) {
         try {
           const event: InputEvent = {
             type: 'input',
