@@ -1,5 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { extractErrorChunkText } from './web-stream.ts';
+
+// Root CI does not build the CLI workspaces. Forward to the real source
+// implementation so importing web-stream does not require generated dist/.
+vi.mock('@agentboster-cli/ai/utils/event-stream', () => {
+  // Keep this dynamic so the package build does not emit sibling sources.
+  return import(
+    new URL('../../ai/src/utils/event-stream.ts', import.meta.url).href
+  );
+});
 
 describe('extractErrorChunkText (errorText passthrough)', () => {
   it('reads errorText from AI SDK UIMessage error parts', () => {

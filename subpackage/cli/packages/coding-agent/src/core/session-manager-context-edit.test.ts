@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage, UserMessage } from '@agentboster-cli/ai';
 import { SessionManager } from './session-manager.ts';
+
+// CI runs these tests before workspace dist/ entries exist. Use the real
+// UUID implementation without loading the agent package's runtime graph.
+vi.mock('@agentboster-cli/agent', () => {
+  // Keep this dynamic so the package build does not emit sibling sources.
+  return import(new URL('../../../agent/src/uuid.ts', import.meta.url).href);
+});
 
 function userMessage(text: string): UserMessage {
   return {

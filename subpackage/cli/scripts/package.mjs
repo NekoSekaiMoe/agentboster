@@ -17,26 +17,24 @@ import { execFileSync, execSync } from "node:child_process";
  *
  * Output layout (under agentboster-cli-<version>/):
  *   agentboster-cli        shell entry (chmod +x, execs node agentboster-cli.cjs)
- *   agentboster-cli.cjs    single-file bundle (all JS + inlined theme
- *                      JSON, export templates, vendored libs, and
- *                      the announcement PNG; ~9 MB)
+ *   agentboster-cli.cjs    compile-cache launcher
+ *   agentboster-cli-runtime.cjs    bundle (all JS + inlined assets)
  *
  * Runtime requirements on the target machine:
  *   - Node.js >= 22 on PATH (the `agentboster-cli` wrapper is `exec node …`)
  *   - GNU tar on the build machine (used only for packaging)
  *
  * No node_modules, no dist/, no package.json needed at runtime: every
- * asset is inlined into agentboster-cli.cjs by esbuild.
+ * asset is inlined into agentboster-cli-runtime.cjs by esbuild.
  */
 
 const root = resolveRoot();
 const codingAgentDir = join(root, "packages", "coding-agent");
-// Entry shim (compile-cache) + real runtime bundle — both ship in the tarball.
+// CI supplies one self-contained runtime; create the launcher when packaging.
 const cjsPath = join(codingAgentDir, "dist", "agentboster-cli.cjs");
-const runtimePath = join(codingAgentDir, "dist", "agentboster-cli-runtime.cjs");
 const pkgPath = join(codingAgentDir, "package.json");
 
-if (!existsSync(cjsPath) || !existsSync(runtimePath)) {
+if (!existsSync(cjsPath)) {
 	console.error(
 		"agentboster-cli.cjs not found. Run `npm run bundle` before `npm run package`.",
 	);
@@ -61,11 +59,20 @@ mkdirSync(stagingInner, { recursive: true });
 
 // 1) agentboster-cli.cjs entry shim + runtime bundle (executable bit for
 //    direct `./agentboster-cli.cjs` use).
-writeFileSync(join(stagingInner, "agentboster-cli.cjs"), readFileSync(cjsPath));
+writeFileSync(
+	join(stagingInner, "agentboster-cli.cjs"),
+	[
+		"#!/usr/bin/env node",
+		"// Enable the persistent compile cache before compiling the runtime.",
+		"try { require('node:module').enableCompileCache?.(); } catch {}",
+		"require('./agentboster-cli-runtime.cjs');",
+		"",
+	].join("\n"),
+);
 chmodSync(join(stagingInner, "agentboster-cli.cjs"), 0o755);
 writeFileSync(
 	join(stagingInner, "agentboster-cli-runtime.cjs"),
-	readFileSync(runtimePath),
+	readFileSync(cjsPath),
 );
 
 // 2) Shell entry — convenience so users run `./agentboster-cli` not
