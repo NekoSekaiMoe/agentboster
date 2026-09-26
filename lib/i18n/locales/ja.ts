@@ -7,6 +7,7 @@ export const ja = {
   'appearance.language.title': '言語',
   'appearance.title': '外観',
   'auth.signOutError': 'サインアウトできませんでした。もう一度お試しください。',
+  'chat.generatingResponse': 'アシスタントが応答を生成しています',
   'chat.configManagement': '設定管理',
   'chat.delete.cancel': 'キャンセル',
   'chat.delete.confirm': '削除',

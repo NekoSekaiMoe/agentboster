@@ -7,6 +7,7 @@ export const ko = {
   'appearance.language.title': '언어',
   'appearance.title': '외관',
   'auth.signOutError': '로그아웃하지 못했습니다. 다시 시도하세요.',
+  'chat.generatingResponse': '어시스턴트가 응답을 생성하고 있습니다',
   'chat.configManagement': '설정 관리',
   'chat.delete.cancel': '취소',
   'chat.delete.confirm': '삭제',

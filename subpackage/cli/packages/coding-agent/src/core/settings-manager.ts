@@ -925,11 +925,17 @@ export class SettingsManager {
     baseDelayMs: number;
     maxAgentDelayMs: number;
   } {
+    const maxAgentDelayMs = this.settings.retry?.maxAgentDelayMs;
     return {
       enabled: this.getRetryEnabled(),
       maxRetries: this.settings.retry?.maxRetries ?? 3,
       baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,
-      maxAgentDelayMs: this.settings.retry?.maxAgentDelayMs ?? 60_000,
+      maxAgentDelayMs:
+        typeof maxAgentDelayMs === 'number' &&
+        Number.isFinite(maxAgentDelayMs) &&
+        maxAgentDelayMs >= 0
+          ? maxAgentDelayMs
+          : 60_000,
     };
   }
 

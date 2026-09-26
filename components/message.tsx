@@ -1127,6 +1127,7 @@ export const PreviewMessage = memo(
 );
 
 export const ThinkingMessage = () => {
+  const { t } = useI18n();
   const role = 'assistant';
 
   return (
@@ -1138,10 +1139,12 @@ export const ThinkingMessage = () => {
     >
       <div className="flex w-full min-w-0 gap-4">
         {/* Gemini-style three-dot breathing indicator */}
-        <div className="flex items-center gap-1.5 px-1 py-2">
+        <div role="status" className="flex items-center gap-1.5 px-1 py-2">
+          <span className="sr-only">{t('chat.generatingResponse')}</span>
           {[0, 1, 2].map((i) => (
             <span
               key={i}
+              aria-hidden="true"
               className="size-2 animate-pulse rounded-full bg-foreground/70"
               style={{ animationDelay: `${i * 180}ms` }}
             />

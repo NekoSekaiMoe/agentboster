@@ -4809,9 +4809,9 @@ export class InteractiveMode {
           if (this.isExtensionCommand(message.text)) {
             await this.session.prompt(message.text);
           } else if (message.mode === 'followUp') {
-            await this.session.followUp(message.text);
+            await this.session.followUp(message.text, undefined, 'interactive');
           } else {
-            await this.session.steer(message.text);
+            await this.session.steer(message.text, undefined, 'interactive');
           }
         }
         this.updatePendingMessagesDisplay();
@@ -4851,9 +4851,9 @@ export class InteractiveMode {
         if (this.isExtensionCommand(message.text)) {
           await this.session.prompt(message.text);
         } else if (message.mode === 'followUp') {
-          await this.session.followUp(message.text);
+          await this.session.followUp(message.text, undefined, 'interactive');
         } else {
-          await this.session.steer(message.text);
+          await this.session.steer(message.text, undefined, 'interactive');
         }
       }
       this.updatePendingMessagesDisplay();
@@ -6032,6 +6032,7 @@ export class InteractiveMode {
       const diagnostics = collectBugReportDiagnostics(
         this.sessionManager,
         readCrashLog(),
+        includeSession,
       );
 
       let summary: string | undefined;
@@ -6064,7 +6065,9 @@ export class InteractiveMode {
           sessionJsonl = undefined;
         }
         if (sessionJsonl === undefined) {
-          this.showError('Bug report failed: session transcript is not available');
+          this.showError(
+            'Bug report failed: session transcript is not available',
+          );
           return;
         }
       }

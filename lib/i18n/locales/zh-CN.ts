@@ -6,6 +6,7 @@ export const zhCN = {
   'appearance.language.title': '语言',
   'appearance.title': '外观',
   'auth.signOutError': '退出登录失败，请重试。',
+  'chat.generatingResponse': '助手正在生成回复',
   'chat.configManagement': '配置管理',
   'chat.delete.cancel': '取消',
   'chat.delete.confirm': '删除',

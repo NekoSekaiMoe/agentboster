@@ -412,6 +412,8 @@ export class AgentSession {
   private _retryAttempt = 0;
   /** True while `agent_settled` handlers are being dispatched (pi 0.87.0). */
   private _isEmittingAgentSettled = false;
+  // Note: .agents/notes/implemented/bug-fix/2026-09-26-session-runtime-ordering.md
+  private _pendingContextRefresh = false;
   /** Runs requested from `agent_settled` handlers; drained after all handlers finish. */
   private _deferredSettledActions: Array<() => Promise<void>> = [];
 
@@ -1144,6 +1146,10 @@ export class AgentSession {
       }
     } finally {
       this._flushPendingBashMessages();
+      if (this._pendingContextRefresh && !this.isStreaming) {
+        this._pendingContextRefresh = false;
+        this.refreshContext();
+      }
       await this._emitAgentSettled();
     }
   }
@@ -1506,9 +1512,14 @@ export class AgentSession {
    * Extension input handlers can transform or consume the message before queuing.
    * Expands skill commands and prompt templates. Errors on extension commands.
    * @param images Optional image attachments to include with the message
+   * @param source Input origin; interactive replay overrides the RPC default
    * @throws Error if text is an extension command
    */
-  async steer(text: string, images?: ImageContent[]): Promise<void> {
+  async steer(
+    text: string,
+    images?: ImageContent[],
+    source: InputSource = 'rpc',
+  ): Promise<void> {
     // Check for extension commands (cannot be queued)
     if (text.startsWith('/')) {
       this._throwIfExtensionCommand(text);
@@ -1519,7 +1530,7 @@ export class AgentSession {
     const inputHandled = await this._applyExtensionInputHandlers(
       text,
       images,
-      'rpc',
+      source,
       'steer',
     );
     if (inputHandled.handled) return;
@@ -1539,9 +1550,14 @@ export class AgentSession {
    * Extension input handlers can transform or consume the message before queuing.
    * Expands skill commands and prompt templates. Errors on extension commands.
    * @param images Optional image attachments to include with the message
+   * @param source Input origin; interactive replay overrides the RPC default
    * @throws Error if text is an extension command
    */
-  async followUp(text: string, images?: ImageContent[]): Promise<void> {
+  async followUp(
+    text: string,
+    images?: ImageContent[],
+    source: InputSource = 'rpc',
+  ): Promise<void> {
     // Check for extension commands (cannot be queued)
     if (text.startsWith('/')) {
       this._throwIfExtensionCommand(text);
@@ -1552,7 +1568,7 @@ export class AgentSession {
     const inputHandled = await this._applyExtensionInputHandlers(
       text,
       images,
-      'rpc',
+      source,
       'followUp',
     );
     if (inputHandled.handled) return;
@@ -1661,7 +1677,13 @@ export class AgentSession {
         this.agent.steer(appMessage);
       }
     } else if (options?.triggerTurn) {
-      await this._runAgentPrompt(appMessage);
+      if (this._isEmittingAgentSettled) {
+        this._deferredSettledActions.push(() =>
+          this._runAgentPrompt(appMessage),
+        );
+      } else {
+        await this._runAgentPrompt(appMessage);
+      }
     } else {
       this.agent.state.messages.push(appMessage);
       this.sessionManager.appendCustomMessageEntry(
@@ -2104,8 +2126,9 @@ export class AgentSession {
    * Append a model-context edit (pi 0.87.0): omit `targetId` from future
    * provider context when `replacement` is null, or replace its content
    * otherwise — without rewriting raw history or UI history. The live agent
-   * context is refreshed immediately when idle. Emits entry_appended after
-   * appending; targets must precede the edit on the selected branch to apply.
+   * context is refreshed immediately when idle or before agent_settled after
+   * a run. Emits entry_appended after appending; targets must precede the edit
+   * on the selected branch to apply.
    * @returns the new entry id.
    * @throws If serialization or persistence fails, after updating session memory.
    */
@@ -2121,7 +2144,9 @@ export class AgentSession {
     if (entry) {
       this._emit({ type: 'entry_appended', entry });
     }
-    if (!this.isStreaming) {
+    if (this.isStreaming) {
+      this._pendingContextRefresh = true;
+    } else {
       this.refreshContext();
     }
     return entryId;

@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
 import { resolvePath } from '../utils/paths.ts';
 import type { AgentSession } from './agent-session.ts';
@@ -494,12 +494,21 @@ export class AgentSessionRuntime {
       copyFileSync(resolvedPath, destinationPath);
     }
 
-    const sessionManager = SessionManager.open(
-      destinationPath,
-      sessionDir,
-      cwdOverride,
-    );
-    assertSessionCwdExists(sessionManager, this.cwd);
+    let sessionManager: SessionManager;
+    try {
+      sessionManager = SessionManager.open(
+        destinationPath,
+        sessionDir,
+        cwdOverride,
+      );
+      assertSessionCwdExists(sessionManager, this.cwd);
+    } catch (error) {
+      // Release only our copy so a cwdOverride retry selects the same target.
+      if (resolve(destinationPath) !== resolvedPath) {
+        unlinkSync(destinationPath);
+      }
+      throw error;
+    }
     await this.teardownCurrent('resume', sessionManager.getSessionFile());
     this.apply(
       await this.createRuntime({

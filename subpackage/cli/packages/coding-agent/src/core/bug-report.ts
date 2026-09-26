@@ -185,12 +185,14 @@ export function collectBugReportMetadata(
 
 /**
  * Collect assistant diagnostics, errors, and aborted turns across all session
- * branches, excluding message content. Includes supplied crash records and
- * error text without redaction, plus counts of all entries and assistant turns.
+ * branches, excluding message content. Crash records use JSON/URL redaction;
+ * cwd and sessionFile are included only with session data. Assistant error text
+ * is retained, along with counts of all entries and assistant turns.
  */
 export function collectBugReportDiagnostics(
   sessionManager: SessionManager,
   crashes: ReadonlyArray<object> = [],
+  includeSession = false,
 ): Record<string, unknown> {
   const entries = sessionManager.getEntries();
   const assistant: Array<Record<string, unknown>> = [];
@@ -228,9 +230,14 @@ export function collectBugReportDiagnostics(
     entryCount: entries.length,
     assistantMessageCount,
     assistant,
-    crashes: crashes.map((record) => ({
-      ...(record as Record<string, unknown>),
-    })),
+    crashes: crashes.map((record) => {
+      const crash = { ...(record as Record<string, unknown>) };
+      if (!includeSession) {
+        delete crash.cwd;
+        delete crash.sessionFile;
+      }
+      return redactJsonValue(crash);
+    }),
   };
 }
 

@@ -5,6 +5,7 @@ export const enUS = {
   'appearance.language.title': 'Language',
   'appearance.title': 'Appearance',
   'auth.signOutError': 'Failed to sign out. Please try again.',
+  'chat.generatingResponse': 'Assistant is generating a response',
   'chat.configManagement': 'Configuration',
   'chat.delete.cancel': 'Cancel',
   'chat.delete.confirm': 'Delete',

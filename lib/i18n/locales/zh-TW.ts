@@ -7,6 +7,7 @@ export const zhTW = {
   'appearance.language.title': '語言',
   'appearance.title': '外觀',
   'auth.signOutError': '登出失敗，請再試一次。',
+  'chat.generatingResponse': '助理正在產生回覆',
   'chat.configManagement': '設定管理',
   'chat.delete.cancel': '取消',
   'chat.delete.confirm': '刪除',
