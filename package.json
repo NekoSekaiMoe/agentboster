@@ -66,7 +66,7 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
     "usehooks-ts": "^3.1.1",
-    "undici": "^7.28.0",
+    "undici": "^7.30.0",
     "workflow": "^4.6.0",
     "zlib-sync": "^0.1.10",
     "zod": "^4.4.3",
@@ -119,11 +119,20 @@
     "gcp-metadata": "8.1.2",
     "@swc/helpers": "0.5.17",
     "@codemirror/view": "6.41.0",
-    "js-yaml": "4.3.1",
+    "js-yaml": "4.3.2",
     "axios": "1.18.0",
     "tar": "7.5.21",
-    "postcss": "8.5.18",
+    "postcss": "8.5.28",
     "brace-expansion": "5.0.9",
-    "minimatch": "10.2.3"
+    "minimatch": "10.2.3",
+    "drizzle-kit/@esbuild-kit/esm-loader/@esbuild-kit/core-utils/esbuild": "0.25.12",
+    "workflow/@workflow/core/nanoid": "5.1.16",
+    "workflow/@workflow/core/devalue": "5.9.2",
+    "workflow/@workflow/core/@workflow/world-local/undici": "7.30.0",
+    "workflow/@workflow/core/@workflow/world-vercel/undici": "7.30.0",
+    "**/discord.js/undici": "6.29.0",
+    "**/@discordjs/rest/undici": "6.29.0",
+    "workflow/@workflow/cli/@workflow/world-local/undici": "7.30.0",
+    "workflow/@workflow/cli/@workflow/world-vercel/undici": "7.30.0"
   }
 }
