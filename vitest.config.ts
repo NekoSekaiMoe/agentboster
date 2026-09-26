@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 /**
  * P3.2: Vitest configuration.
@@ -36,6 +36,18 @@ export default defineConfig({
       'subpackage/cli/packages/agentboster-adapter/src/**/*.test.ts',
       'subpackage/cli/packages/desktop/src/**/*.test.ts',
       'subpackage/sdk/src/**/*.test.ts',
+    ],
+    // These coding-agent test files statically import the CLI source tree,
+    // which pulls in subpackage-only dependencies (`typebox`,
+    // `typebox/compile`, `typebox/value`, `@agentboster-cli/tui`). The root
+    // CI test job only installs the repo root (build-check.yml), so those
+    // specifiers are unresolvable there. They run — with a full workspace
+    // install — in cli-ci.yml via `yarn workspace @agentboster-cli/core test`.
+    // Keep this list limited to files that actually require workspace deps.
+    exclude: [
+      ...configDefaults.exclude,
+      'subpackage/cli/packages/coding-agent/src/core/agent-session-edge-cases.test.ts',
+      'subpackage/cli/packages/coding-agent/src/modes/interactive/components/tool-execution.test.ts',
     ],
     // The Next/Vercel modules reference Node builtins; tell vitest to
     // not polyfill them.
