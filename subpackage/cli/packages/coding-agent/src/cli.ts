@@ -17,15 +17,13 @@ process.emitWarning = (() => {}) as typeof process.emitWarning;
 
 // Persist crashes (pi 0.86.0) so the next start can announce them and /bug
 // can attach them to a report. Best-effort only.
-process.on('uncaughtException', (error) => {
-  recordCrash({ kind: 'uncaught', error, cwd: process.cwd() });
-  // Re-throw to preserve default fatal behavior.
-  throw error;
-});
-process.on('unhandledRejection', (reason) => {
+// Monitor listeners run before regular uncaughtException listeners
+// (including InteractiveMode's prepended handler) and do not change
+// Node's default fatal behavior.
+process.on('uncaughtExceptionMonitor', (error, origin) => {
   recordCrash({
-    kind: 'unhandledRejection',
-    error: reason instanceof Error ? reason : new Error(String(reason)),
+    kind: origin === 'unhandledRejection' ? 'unhandledRejection' : 'uncaught',
+    error,
     cwd: process.cwd(),
   });
 });
