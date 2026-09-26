@@ -6035,7 +6035,13 @@ export class InteractiveMode {
       );
 
       let summary: string | undefined;
-      if (includeSummary && model && auth.ok) {
+      if (includeSummary) {
+        if (!model || !auth.ok) {
+          this.showError(
+            'Bug report failed: no model credentials available for the summary',
+          );
+          return;
+        }
         summary = await generateBugReportSummary({
           model,
           messages: this.sessionManager.buildSessionContext().messages,
@@ -6056,6 +6062,10 @@ export class InteractiveMode {
             : undefined;
         } catch {
           sessionJsonl = undefined;
+        }
+        if (sessionJsonl === undefined) {
+          this.showError('Bug report failed: session transcript is not available');
+          return;
         }
       }
 
