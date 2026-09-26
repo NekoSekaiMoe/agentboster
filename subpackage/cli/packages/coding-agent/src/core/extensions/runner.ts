@@ -985,6 +985,11 @@ export class ExtensionRunner {
     return result;
   }
 
+  /**
+   * Return the first valid extension override, or undefined for local execution.
+   * Handler failures and invalid results emit an extension error and reject,
+   * allowing callers to abort the command instead of executing it locally.
+   */
   async emitUserBash(
     event: UserBashEvent,
   ): Promise<UserBashEventResult | undefined> {
@@ -1023,6 +1028,12 @@ export class ExtensionRunner {
     return undefined;
   }
 
+  /**
+   * Chain context handlers over a deep copy of the messages, accepting returned
+   * replacements and in-place edits. Handler failures emit extension errors and
+   * processing continues; edits made before failure remain. Initial clone and
+   * error-listener failures propagate.
+   */
   async emitContext(messages: AgentMessage[]): Promise<AgentMessage[]> {
     const ctx = this.createContext();
     let currentMessages = structuredClone(messages);
@@ -1067,6 +1078,9 @@ export class ExtensionRunner {
   /**
    * Run after all `context` handlers with the full request picture
    * (conversation + system prompt). Results are used verbatim.
+   * Chains returned replacements without cloning the messages. Handler failures
+   * emit extension errors and processing continues; mutations are not rolled
+   * back. Error-listener failures propagate.
    */
   async emitContextWithSystem(
     messages: AgentMessage[],

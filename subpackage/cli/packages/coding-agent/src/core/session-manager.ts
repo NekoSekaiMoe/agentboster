@@ -535,11 +535,6 @@ export function sessionEntryToContextMessages(
 }
 
 /**
- * Build the session context from entries using tree traversal.
- * If leafId is provided, walks from that entry to root.
- * Handles compaction and branch summaries along the path.
- */
-/**
  * Apply a context-edit replacement to a message (pi 0.87.0). String
  * replacements are normalized into role-appropriate text blocks so
  * assistant and tool-result messages never end up with invalid string
@@ -569,6 +564,13 @@ function applyContextEditReplacement(
   return message;
 }
 
+/**
+ * Build messages and model/thinking settings along the path from root to leaf.
+ * Handles compaction and branch summaries, applying the latest context edit
+ * only to targets preceding it on that path, without rewriting entries.
+ * A null leafId returns empty context; an omitted or unknown ID uses the last
+ * entry. An optional byId map must index the supplied entries.
+ */
 export function buildSessionContext(
   entries: SessionEntry[],
   leafId?: string | null,
@@ -1276,7 +1278,12 @@ export class SessionManager {
     return entry.id;
   }
 
-  /** Append a compaction summary as child of current leaf, then advance leaf. Returns entry id. */
+  /**
+   * Append a compaction summary as child of current leaf, then advance leaf.
+   * A null firstKeptEntryId retains no pre-compaction messages in context.
+   * @returns The new entry ID.
+   * @throws If serialization or persistence fails, after updating memory.
+   */
   appendCompaction<T = unknown>(
     summary: string,
     firstKeptEntryId: string | null,
@@ -1307,8 +1314,10 @@ export class SessionManager {
    * Append a context edit (pi 0.87.0) as child of the current leaf, then
    * advance the leaf. The edit omits `targetId` from future provider context
    * when `replacement` is null, or replaces its content otherwise. Raw
-   * history, usage, and UI history are unchanged.
+   * history, usage, and UI history are unchanged. The target is not validated;
+   * the edit applies only if the target precedes it on the selected branch.
    * @returns the new entry id.
+   * @throws If serialization or persistence fails, after updating memory.
    */
   appendContextEdit(
     targetId: string,

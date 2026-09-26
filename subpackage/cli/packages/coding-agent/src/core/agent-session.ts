@@ -1204,9 +1204,13 @@ export class AgentSession {
    * - Handles extension commands (registered via pi.registerCommand) immediately, even during streaming
    * - Expands file-based prompt templates by default
    * - During streaming, queues via steer() or followUp() based on streamingBehavior option
-   * - Validates model and API key before sending (when not streaming)
+   * - Validates that a model is selected before sending (when not streaming)
+   * - Resolves immediately during agent_settled dispatch, deferring the prompt
+   *   until all settled handlers finish
+   * - Provider failures normally surface as assistant error messages
    * @throws Error if streaming and no streamingBehavior specified
-   * @throws Error if no model selected or no API key available (when not streaming)
+   * @throws Error if no model is selected (when not streaming). Preflight and
+   * event-dispatch failures can also propagate.
    */
   async prompt(text: string, options?: PromptOptions): Promise<void> {
     // A prompt requested from an `agent_settled` handler must not reenter the
@@ -1490,6 +1494,7 @@ export class AgentSession {
    * Queue a steering message while the agent is running.
    * Delivered after the current assistant turn finishes executing its tool calls,
    * before the next LLM call.
+   * Extension input handlers can transform or consume the message before queuing.
    * Expands skill commands and prompt templates. Errors on extension commands.
    * @param images Optional image attachments to include with the message
    * @throws Error if text is an extension command
@@ -1522,6 +1527,7 @@ export class AgentSession {
   /**
    * Queue a follow-up message to be processed after the agent finishes.
    * Delivered only when agent has no more tool calls or steering messages.
+   * Extension input handlers can transform or consume the message before queuing.
    * Expands skill commands and prompt templates. Errors on extension commands.
    * @param images Optional image attachments to include with the message
    * @throws Error if text is an extension command
@@ -2075,6 +2081,7 @@ export class AgentSession {
    * manager is the source of truth for provider context (pi 0.87.0):
    * append-only context edits, compaction boundaries, and branch
    * summarization are all resolved here.
+   * @throws Error if the agent is streaming.
    */
   refreshContext(): void {
     if (this.isStreaming) {
@@ -2088,8 +2095,10 @@ export class AgentSession {
    * Append a model-context edit (pi 0.87.0): omit `targetId` from future
    * provider context when `replacement` is null, or replace its content
    * otherwise — without rewriting raw history or UI history. The live agent
-   * context is refreshed immediately when idle.
+   * context is refreshed immediately when idle. Emits entry_appended after
+   * appending; targets must precede the edit on the selected branch to apply.
    * @returns the new entry id.
+   * @throws If serialization or persistence fails, after updating session memory.
    */
   appendContextEdit(
     targetId: string,

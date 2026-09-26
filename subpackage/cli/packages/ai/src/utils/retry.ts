@@ -80,7 +80,11 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 /** Default cap on agent-level retry backoff (pi #8826). */
 export const DEFAULT_MAX_AGENT_RETRY_DELAY_MS = 60_000;
 
-/** Bounded exponential backoff delay for agent-level retries. */
+/**
+ * Return exponential retry backoff in milliseconds, capped by maxAgentDelayMs
+ * (60,000 by default). Attempt 1 and lower use the base delay. A computed
+ * delay that is not a safe integer uses Number.MAX_SAFE_INTEGER before capping.
+ */
 export function retryDelayMs(
   policy: { baseDelayMs: number; maxAgentDelayMs?: number },
   attempt: number,
@@ -99,6 +103,8 @@ export function retryDelayMs(
  * Classifies whether a failed assistant message looks like a transient
  * provider or transport error, so callers can decide if the last assistant
  * turn should be restarted. Ported from pi-ai 0.87.1 (`utils/retry.ts`).
+ * Requires an error stop with nonempty error text; recognized account, quota,
+ * and billing limits take precedence over transient-error matches.
  */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
   if (message.stopReason !== 'error' || !message.errorMessage) return false;

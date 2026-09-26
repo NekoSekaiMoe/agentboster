@@ -445,6 +445,9 @@ export class AgentSessionRuntime {
 
   /**
    * Import a session JSONL file and switch runtime state to the imported session.
+   * Uses the first available -import<N> filename when another file occupies
+   * the destination; a source already at its destination is opened in place.
+   * Filesystem and runtime-replacement failures propagate to the caller.
    *
    * @returns `{ cancelled: true }` when cancelled by `session_before_switch`, otherwise `{ cancelled: false }`.
    * @throws {SessionImportFileNotFoundError} When the input path does not exist.

@@ -51,8 +51,11 @@ const NON_OVERFLOW_PATTERNS = [
  * Check if an assistant message represents a context overflow error.
  *
  * Handles error-based overflow (detectable message patterns), silent overflow
- * (usage.input + cacheRead exceeds the context window), and length-stop
- * overflow (server truncates input, zero output).
+ * (usage.input + cacheRead exceeds the context window on a normal stop), and
+ * length-stop overflow (zero output with input + cacheRead at least 99% of
+ * the window). Omitting contextWindow, or passing zero, disables usage checks.
+ * Recognized throttling messages are excluded from error-pattern matching.
+ * @param contextWindow Model context capacity in tokens.
  */
 export function isContextOverflow(
   message: AssistantMessage,

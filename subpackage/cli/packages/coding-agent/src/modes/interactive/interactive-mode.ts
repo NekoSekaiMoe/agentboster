@@ -5982,8 +5982,11 @@ export class InteractiveMode {
   }
 
   /**
-   * /bug [description] — export a redacted diagnostics archive (pi 0.86.0).
-   * The thin-client CLI exports a local zip instead of uploading.
+   * /bug [description] — export a diagnostics archive (pi 0.86.0).
+   * Prompts for optional transcript or model-summary inclusion, writes a local
+   * ZIP, and records its path in the session. Settings and selected URLs are
+   * redacted; diagnostics and transcript content are copied as supplied.
+   * Unreadable transcripts are omitted; other failures are shown in the UI.
    */
   private async handleBugCommand(hint: string): Promise<void> {
     try {

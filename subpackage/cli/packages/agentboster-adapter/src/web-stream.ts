@@ -151,7 +151,8 @@ function errorMessage(text: string): AssistantMessage {
  * AI SDK UIMessage stream error parts carry the provider error text in
  * `errorText` ("{\"type\":\"error\",\"errorText\":\"...\"}"); the workflow's
  * DurableAgent writes the original provider error message there verbatim.
- * `message` is kept as a fallback for any legacy producer that still uses it.
+ * `message` is used only when `errorText` is null or undefined. An empty or
+ * non-string selected value returns "unknown error".
  * Without this mapping every stream-internal provider error degrades to
  * "unknown error" and the CLI's overflow/retry classification never fires.
  */

@@ -151,6 +151,9 @@ function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
 
 /**
  * Main loop logic shared by agentLoop and agentLoopContinue.
+ * Appends messages to the supplied context and newMessages array. Calls
+ * finishTurn before turn_end; error and aborted responses always end the run.
+ * finishTurn failures propagate without a normal terminal sequence.
  */
 async function runLoop(
   initialContext: AgentContext,
@@ -299,7 +302,10 @@ async function runLoop(
 
 /**
  * Stream an assistant response from the LLM.
- * This is where AgentMessage[] gets transformed to Message[] for the LLM.
+ * Applies message and system-prompt transforms before conversion for the LLM,
+ * updates context.messages, and emits message lifecycle events.
+ * Returns terminal error responses as messages; thrown transform, stream,
+ * API-key, and event-sink errors propagate to the caller.
  */
 async function streamAssistantResponse(
   context: AgentContext,

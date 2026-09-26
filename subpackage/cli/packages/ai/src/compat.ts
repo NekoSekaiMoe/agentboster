@@ -59,6 +59,7 @@ export function validateToolArguments(_tool: unknown, call: unknown): unknown {
 
 export function cleanupSessionResources(_sessionId?: string): void {}
 
+/** Detect overflow from error text or, when supplied, a context window in tokens. */
 export function isContextOverflow(
   message: AssistantMessage,
   contextWindow?: number,
@@ -66,6 +67,7 @@ export function isContextOverflow(
   return isContextOverflowImpl(message, contextWindow);
 }
 
+/** Detect transient assistant errors while excluding recognized account limits. */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
   return isRetryableAssistantErrorImpl(message);
 }

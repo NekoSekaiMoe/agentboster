@@ -48,6 +48,11 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
     });
   }
 
+  /**
+   * Deliver an event to the oldest waiter or buffer it for iteration.
+   * A completion event resolves result() and is also delivered; later pushes
+   * are ignored. Errors from the completion/result callbacks propagate.
+   */
   push(event: T): void {
     if (this.done) return;
 
@@ -65,6 +70,11 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
     }
   }
 
+  /**
+   * Stop accepting events and release waiting consumers, preserving buffered
+   * events for iteration. Without a defined result, result() stays pending
+   * unless a completion event or an earlier end() already resolved it.
+   */
   end(result?: R): void {
     this.done = true;
     if (result !== undefined) {
@@ -77,6 +87,7 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
     }
   }
 
+  /** Yield buffered and incoming events in FIFO order until the stream ends. */
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     while (true) {
       if (this.queue.length > 0) {

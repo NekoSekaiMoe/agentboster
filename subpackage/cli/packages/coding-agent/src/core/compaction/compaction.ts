@@ -546,6 +546,12 @@ function createSummarizationOptions(
   };
 }
 
+/**
+ * Return the final assistant message from the supplied summary stream,
+ * including error or aborted messages for the caller to interpret.
+ * @throws If stream creation or result retrieval fails, or streamFn is omitted
+ * because the default completion provider is unavailable in this fork.
+ */
 export async function completeSummarization(
   model: Model<any>,
   context: Context,

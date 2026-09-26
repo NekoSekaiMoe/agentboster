@@ -28,7 +28,11 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEY.test(key.replace(/([a-z0-9])([A-Z])/g, '$1_$2'));
 }
 
-/** Strip credentials and secret-looking query parameters from a URL. */
+/**
+ * Strip URL credentials and redact query values whose keys look sensitive.
+ * Unparseable URLs and URLs without sensitive fields are unchanged;
+ * URL paths, fragments, and secrets embedded in prose are not redacted.
+ */
 export function redactUrl(value: string): string {
   const nested = /^([a-z][a-z0-9+.-]*:)([a-z][a-z0-9+.-]*:\/\/.*)$/i.exec(
     value,
@@ -54,7 +58,11 @@ export function redactUrl(value: string): string {
   }
 }
 
-/** Copy a JSON value while removing values that may contain credentials. */
+/**
+ * Copy a JSON value, redacting non-null values under sensitive keys and
+ * sensitive URL fields in strings. Other string content and undefined are
+ * preserved. JSON serialization and parsing errors propagate to the caller.
+ */
 export function redactJsonValue(value: unknown): unknown {
   if (value === undefined) return undefined;
   return JSON.parse(
@@ -134,6 +142,11 @@ export interface BugReportMetadataOptions {
   thinkingLevel: string | undefined;
 }
 
+/**
+ * Collect environment, model, extension, and redacted settings metadata.
+ * Includes cwd only when includeSession is true; hint and extension errors
+ * are retained as text. Settings serialization errors propagate.
+ */
 export function collectBugReportMetadata(
   options: BugReportMetadataOptions,
 ): Record<string, unknown> {
@@ -170,7 +183,11 @@ export function collectBugReportMetadata(
   };
 }
 
-/** Collect failed assistant turns without collecting conversation content. */
+/**
+ * Collect assistant diagnostics, errors, and aborted turns across all session
+ * branches, excluding message content. Includes supplied crash records and
+ * error text without redaction, plus counts of all entries and assistant turns.
+ */
 export function collectBugReportDiagnostics(
   sessionManager: SessionManager,
   crashes: ReadonlyArray<object> = [],
@@ -224,7 +241,10 @@ export interface BugReportBundle {
   summary?: string;
 }
 
-/** Files included in the exported zip archive. */
+/**
+ * Serialize report and diagnostics JSON with optional transcript and summary
+ * files. Performs no redaction; JSON serialization errors propagate.
+ */
 export function bugReportFiles(bundle: BugReportBundle): Array<{
   name: string;
   data: string;
@@ -253,6 +273,11 @@ export function bugReportFiles(bundle: BugReportBundle): Array<{
   return files;
 }
 
+/**
+ * Write the supplied report bundle to a ZIP file, overwriting an existing file.
+ * The parent directory must exist. Serialization and ZIP errors throw
+ * synchronously; filesystem write failures reject the returned promise.
+ */
 export function writeBugReportArchive(
   bundle: BugReportBundle,
   filePath: string,
@@ -289,6 +314,10 @@ Tool calls involved, files touched, model behavior, anything else that helps a d
 
 Do not include file contents, secrets, or credentials from the transcript; refer to files by path only. Keep the report factual and concise.`;
 
+/**
+ * Select a contiguous suffix within an estimated token budget, in original
+ * order. Always keeps the newest message, even when it alone exceeds the budget.
+ */
 function selectMessages(
   messages: AgentMessage[],
   tokenBudget: number,
@@ -305,7 +334,14 @@ function selectMessages(
   return selected.reverse();
 }
 
-/** Ask the session model for a report when the user does not share the transcript. */
+/**
+ * Send recent conversation text and an optional hint to the session model and
+ * return a trimmed report. The selected transcript is sent without redaction;
+ * the prompt asks the model to omit secrets from its report.
+ * @throws If the response is aborted, reports an error, calls a tool, or has no
+ * text. Request failures also propagate, including a missing streamFn because
+ * the default completion provider is unavailable in this fork.
+ */
 export async function generateBugReportSummary(options: {
   model: Model<any>;
   messages: AgentMessage[];

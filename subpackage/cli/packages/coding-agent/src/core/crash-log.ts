@@ -27,6 +27,11 @@ function crashLogPath(agentDir = getAgentDir()): string {
   return join(agentDir, 'crashes.json');
 }
 
+/**
+ * Read crash records with string timestamps and messages; other fields are
+ * not validated. Returns an empty array for unreadable or invalid JSON logs
+ * and non-array contents. Defaults to crashes.json in the agent directory.
+ */
 export function readCrashLog(path = crashLogPath()): CrashRecord[] {
   try {
     const records: unknown = JSON.parse(readFileSync(path, 'utf8'));
@@ -80,7 +85,12 @@ function stackContainsPath(
   return false;
 }
 
-/** Find loaded extensions with source files in a stack trace (pi 0.87.0). */
+/**
+ * Find loaded extensions with source files in a stack trace (pi 0.87.0).
+ * Returns unique package sources or extension paths in extension order, using
+ * `at` frames after the first line. Package and directory entries also match
+ * descendant files. Missing stacks return an empty array.
+ */
 export function findExtensionStackMatches(
   stack: string | undefined,
   extensions: ReadonlyArray<{
@@ -143,7 +153,11 @@ export function findExtensionStackMatches(
   return matches;
 }
 
-/** Best-effort persistence for callers that are already crashing. */
+/**
+ * Persist a crash while retaining the last five records in append order.
+ * Returns the saved record, or undefined if record creation or writing fails.
+ * An unreadable existing log is treated as empty; parent directories are created.
+ */
 export function recordCrash(
   crash: CrashInput,
   path = crashLogPath(),
@@ -170,7 +184,12 @@ export function recordCrash(
   }
 }
 
-/** Return the newest recent crash, marking pending records as announced. */
+/**
+ * Return the last unnotified record whose age is at most seven days, or
+ * undefined if none qualifies. Attempts to mark all pending records notified;
+ * write failures are ignored, so the same crash may be returned again.
+ * @param now Current time in milliseconds since the Unix epoch.
+ */
 export function takeUnnotifiedCrash(
   path = crashLogPath(),
   now = Date.now(),
@@ -196,6 +215,7 @@ export function takeUnnotifiedCrash(
   return crash;
 }
 
+/** Remove the crash log if present, ignoring filesystem failures. */
 export function clearCrashLog(path = crashLogPath()): void {
   try {
     rmSync(path, { force: true });

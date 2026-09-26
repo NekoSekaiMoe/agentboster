@@ -68,6 +68,11 @@ function createZipArchive(
   return Buffer.concat([...files, centralDirectory, end]);
 }
 
+/**
+ * Write a classic ZIP archive, overwriting filePath without creating parents.
+ * Entry names and string data use UTF-8. Archive construction errors throw
+ * synchronously; filesystem write failures reject the returned promise.
+ */
 export function writeZipArchive(
   filePath: string,
   entries: Array<{ name: string; data: string | Uint8Array }>,

@@ -3,6 +3,11 @@ import { open } from 'node:fs/promises';
 const IMAGE_TYPE_SNIFF_BYTES = 4100;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
+/**
+ * Identify JPEG, PNG, GIF, WebP, or BMP from the supplied bytes, or return null.
+ * GIF requires a GIF87a/GIF89a signature. Rejects JPEG-LS, detected animated PNG,
+ * and invalid PNG/BMP headers; this is a header check, not full image validation.
+ */
 export function detectSupportedImageMimeType(
   buffer: Uint8Array,
 ): string | null {
