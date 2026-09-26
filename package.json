@@ -114,7 +114,7 @@
     "start": "next start",
     "workflow:inspect": "workflow inspect runs --web"
   },
-  "version": "0.2.14",
+  "version": "0.2.15",
   "resolutions": {
     "gcp-metadata": "8.1.2",
     "@swc/helpers": "0.5.17",
