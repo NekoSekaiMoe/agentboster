@@ -1165,7 +1165,16 @@ export class AgentSession {
     }
     const deferred = this._deferredSettledActions.splice(0);
     for (const action of deferred) {
-      await action();
+      try {
+        await action();
+      } catch (err) {
+        this._extensionRunner.emitError({
+          extensionPath: '<runtime>',
+          event: 'agent_settled',
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
+      }
     }
   }
 
